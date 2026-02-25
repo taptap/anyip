@@ -86,6 +86,27 @@ func (h *DNSHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			continue
 		}
 
+		// Bare domain → resolve to server IP
+		if name == domainLower && cfg.DomainIP != nil {
+			switch q.Qtype {
+			case dns.TypeA:
+				if ipv4 := cfg.DomainIP.To4(); ipv4 != nil {
+					msg.Answer = append(msg.Answer, &dns.A{
+						Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: cfg.TTL},
+						A:   ipv4,
+					})
+				}
+			case dns.TypeAAAA:
+				if cfg.DomainIP.To4() == nil {
+					msg.Answer = append(msg.Answer, &dns.AAAA{
+						Hdr:  dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: cfg.TTL},
+						AAAA: cfg.DomainIP,
+					})
+				}
+			}
+			continue
+		}
+
 		// Strip domain suffix to get subdomain
 		sub := strings.TrimSuffix(name, domainLower)
 		sub = strings.TrimSuffix(sub, ".")
