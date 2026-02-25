@@ -1,0 +1,20 @@
+# Binary
+anyip
+anyip.exe
+
+# TLS
+*.pem
+*.key
+*.crt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
