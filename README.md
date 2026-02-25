@@ -9,6 +9,9 @@ dig 127-0-0-1.anyip.dev +short
 dig myapp-192-168-1-100.anyip.dev +short
 # 192.168.1.100
 
+dig preview.127-0-0-1.anyip.dev +short
+# 127.0.0.1  (nested subdomain — also works!)
+
 curl https://myapp-127-0-0-1.anyip.dev   # ✅ valid TLS, no browser warnings
 ```
 
@@ -41,9 +44,9 @@ Developer's browser                    AnyIP server (public)
 
 Three components work together:
 
-1. **DNS server** — resolves `<name>-<ip>.yourdomain` to the embedded IP address
-2. **ACME DNS-01 responder** — automatically answers Let's Encrypt challenges so certbot can issue `*.yourdomain` wildcard certificates
-3. **Certificate distribution** — serves the wildcard cert (including private key) over HTTPS for developers to download
+1. **DNS server** — resolves `<name>-<ip>.yourdomain` (and `<prefix>.<ip>.yourdomain`) to the embedded IP address
+2. **ACME DNS-01 responder** — automatically answers Let's Encrypt challenges for root and subdomain wildcard certificates
+3. **Certificate distribution** — serves certs (including private keys) over HTTPS for developers to download
 
 > **Security note:** The private key is intentionally public. This provides the same security as plain HTTP — it satisfies the browser's secure context requirement, not actual transport security. See [Security](#security) for details.
 
@@ -73,22 +76,36 @@ Replace colons with dashes. `::` becomes `--`:
 | `fe80--1.anyip.dev` | `fe80::1` |
 | `myapp---1.anyip.dev` | `::1` |
 
+### Nested Subdomains
+
+AnyIP also supports multi-level subdomains — the IP is extracted from the **last label** before the base domain:
+
+| Hostname | Resolves to |
+|----------|-------------|
+| `preview.127-0-0-1.anyip.dev` | `127.0.0.1` |
+| `user1.192-168-1-5.anyip.dev` | `192.168.1.5` |
+| `app.staging.10-0-0-1.anyip.dev` | `10.0.0.1` |
+
+This is useful for dev tools that create per-user or per-branch preview domains (e.g., `user1.127-0-0-1.anyip.dev`, `user2.127-0-0-1.anyip.dev`).
+
 ### Wildcard Certificate Coverage
 
 Let's Encrypt wildcard certs cover **one level** of subdomain only:
 
-| Hostname | Covered by `*.anyip.dev`? |
-|----------|:---:|
-| `myapp-127-0-0-1.anyip.dev` | ✅ |
-| `api.myapp-127-0-0-1.anyip.dev` | ❌ |
+| Hostname | Covered by `*.anyip.dev`? | Covered by `*.127-0-0-1.anyip.dev`? |
+|----------|:---:|:---:|
+| `myapp-127-0-0-1.anyip.dev` | ✅ | — |
+| `user1.127-0-0-1.anyip.dev` | ❌ | ✅ |
 
-Keep everything in a single label: `<name>-<ip>.anyip.dev`.
+For single-label subdomains, the root wildcard cert (`*.anyip.dev`) works. For nested subdomains, request a per-IP subdomain cert via the [Subdomain Certificate API](#subdomain-certificates).
 
 ## Features
 
 - **Embedded IP resolution** — `<anything>-<ip>.<domain>` → IP address
+- **Nested subdomains** — `<name>.<ip>.<domain>` also resolves, for per-user preview domains
 - **IPv4 and IPv6** — full dual-stack support
 - **Automatic TLS certificates** — Let's Encrypt wildcard via DNS-01, auto-renewal
+- **Subdomain certificates** — on-demand `*.<ip>.<domain>` certs for nested subdomain HTTPS
 - **Certificate distribution** — download endpoint for dev teams
 - **DNS over HTTPS (DoH)** — encrypted DNS via `GET` and `POST` (RFC 8484)
 - **Standard DNS** — UDP and TCP on port 53
@@ -184,6 +201,7 @@ vite --https --host \
 | `-cert-dir` | `ANYIP_CERT_DIR` | `./certs` | Certificate storage directory |
 | `-ttl` | `ANYIP_TTL` | `259200` | DNS response TTL in seconds (72h) |
 | `-only-private` | `ANYIP_ONLY_PRIVATE` | `false` | Only resolve private/reserved IPs |
+| `-cert-subs` | `ANYIP_CERT_SUBS` | | Allowed IP labels for subdomain certs (comma-separated) |
 | `-verbose` | `ANYIP_VERBOSE` | `false` | Verbose logging |
 
 ## DNS over HTTPS
@@ -208,23 +226,43 @@ Configure as your DNS resolver:
 
 ## Certificate API
 
+### Root Wildcard (`*.anyip.dev`)
+
 | Endpoint | Description |
 |----------|-------------|
 | `GET /cert/fullchain.pem` | Full certificate chain |
 | `GET /cert/privkey.pem` | Private key |
-| `GET /cert/info` | Certificate metadata (expiry, domains, fingerprint) |
+| `GET /cert/info` | Certificate metadata (JSON) |
 
-Example `/cert/info` response:
+### Subdomain Certificates
 
-```json
-{
-  "domains": ["anyip.dev", "*.anyip.dev"],
-  "notBefore": "2026-02-25T00:00:00Z",
-  "notAfter": "2026-05-26T00:00:00Z",
-  "issuer": "Let's Encrypt",
-  "fingerprint": "AB:CD:EF:..."
-}
+On-demand wildcard certificates for nested subdomains (e.g., `*.127-0-0-1.anyip.dev`).
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /cert/sub/{label}` | Request cert issuance (~10-30s, returns cert info) |
+| `GET /cert/sub/{label}/fullchain.pem` | Full certificate chain |
+| `GET /cert/sub/{label}/privkey.pem` | Private key |
+| `GET /cert/sub/{label}/info` | Certificate metadata (JSON) |
+
+The `{label}` must be a valid IP pattern (e.g., `127-0-0-1`) **and** listed in `ANYIP_CERT_SUBS`. Requests for unlisted labels return 403.
+
+**Example: request and use a subdomain cert**
+
+```bash
+# Request cert (first time takes ~10-30s for ACME)
+curl -X POST https://anyip.dev/cert/sub/127-0-0-1
+# {"domains":["127-0-0-1.anyip.dev","*.127-0-0-1.anyip.dev"],...}
+
+# Download cert + key
+curl -o cert.pem https://anyip.dev/cert/sub/127-0-0-1/fullchain.pem
+curl -o key.pem  https://anyip.dev/cert/sub/127-0-0-1/privkey.pem
+
+# Use in your dev server — all *.127-0-0-1.anyip.dev names work
+node server.js --cert cert.pem --key key.pem --host user1.127-0-0-1.anyip.dev
 ```
+
+> **Rate limit:** Let's Encrypt allows 50 certificates per registered domain per week. Use `ANYIP_CERT_SUBS` to whitelist only the IP labels you actually need.
 
 ## Docker
 
@@ -250,24 +288,26 @@ docker run -d --name anyip \
 ## Architecture
 
 ```
-                    ┌─────────────────────────────────┐
-                    │           AnyIP Server           │
-                    │                                  │
-    DNS :53 ───────►│  DNS Handler                     │
-   (UDP/TCP)        │  ├─ IP queries → parse & respond │
-                    │  ├─ _acme-challenge → TXT record │
-                    │  └─ SOA/NS → authority records   │
-                    │                                  │
-   HTTPS :443 ─────►│  HTTPS Server                    │
-                    │  ├─ /dns-query → DoH (RFC 8484)  │
-                    │  ├─ /cert/*   → cert distribution│
-                    │  └─ /         → info page        │
-                    │                                  │
-                    │  ACME Manager                     │
-                    │  ├─ auto-request wildcard cert    │
-                    │  ├─ DNS-01 challenge responder    │
-                    │  └─ auto-renewal (60 days)        │
-                    └─────────────────────────────────┘
+                    ┌──────────────────────────────────────────┐
+                    │              AnyIP Server                 │
+                    │                                          │
+    DNS :53 ───────►│  DNS Handler                             │
+   (UDP/TCP)        │  ├─ IP queries → parse & respond         │
+                    │  ├─ _acme-challenge.* → TXT record       │
+                    │  └─ SOA/NS → authority records           │
+                    │                                          │
+   HTTPS :443 ─────►│  HTTPS Server (SNI-based cert selection) │
+                    │  ├─ /dns-query     → DoH (RFC 8484)      │
+                    │  ├─ /cert/*        → root cert download  │
+                    │  ├─ /cert/sub/*    → subdomain certs     │
+                    │  └─ /              → info page           │
+                    │                                          │
+                    │  ACME Manager                             │
+                    │  ├─ root wildcard cert (*.anyip.dev)      │
+                    │  ├─ subdomain certs (*.{ip}.anyip.dev)    │
+                    │  ├─ DNS-01 challenge responder            │
+                    │  └─ auto-renewal (every 12h check)        │
+                    └──────────────────────────────────────────┘
 ```
 
 ## Security
@@ -316,7 +356,9 @@ This restricts resolution to RFC 1918 / RFC 4193 addresses only:
 | | AnyIP | sslip.io / nip.io | localtls |
 |---|---|---|---|
 | IP-in-hostname DNS | ✅ | ✅ | ✅ |
+| Nested subdomains | ✅ | ❌ | ❌ |
 | Auto TLS certs | ✅ | ❌ | ✅ |
+| Subdomain wildcard certs | ✅ | ❌ | ❌ |
 | Cert distribution API | ✅ | ❌ | ✅ |
 | DNS over HTTPS | ✅ | ❌ | ❌ |
 | IPv6 | ✅ | ✅ | ✅ |
@@ -328,6 +370,7 @@ This restricts resolution to RFC 1918 / RFC 4193 addresses only:
 ## Use Cases
 
 - **Local development** — HTTPS for camera, clipboard, service workers on `192.168.x.x`
+- **Preview domains** — per-user/per-branch previews like `user1.127-0-0-1.anyip.dev` with subdomain wildcard certs
 - **Game development** — test WebRTC/WebGL features requiring secure context (TapTap Maker)
 - **Mobile testing** — access dev server from phone with valid HTTPS
 - **CI/CD** — deterministic DNS without external dependencies
