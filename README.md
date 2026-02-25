@@ -175,6 +175,7 @@ vite --https --host \
 | Flag | Env | Default | Description |
 |------|-----|---------|-------------|
 | `-domain` | `ANYIP_DOMAIN` | `anyip.dev` | Base domain |
+| `-domain-ip` | `ANYIP_DOMAIN_IP` | | IP address for bare domain (e.g., server IP) |
 | `-dns-addr` | `ANYIP_DNS_ADDR` | `:53` | DNS listen address (UDP+TCP) |
 | `-doh-addr` | `ANYIP_DOH_ADDR` | `:443` | DoH + cert distribution (HTTPS) |
 | `-doh-path` | `ANYIP_DOH_PATH` | `/dns-query` | DoH endpoint path |

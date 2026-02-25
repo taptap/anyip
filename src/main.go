@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"strconv"
@@ -24,6 +25,7 @@ type Config struct {
 	ACMEStaging bool
 	CertDir     string
 	NS          []string
+	DomainIP    net.IP
 	TTL         uint32
 	OnlyPrivate bool
 	Verbose     bool
@@ -34,8 +36,9 @@ func main() {
 	_ = godotenv.Load()
 
 	var ttlVal uint
-	var nsStr string
+	var nsStr, domainIPStr string
 	flag.StringVar(&cfg.Domain, "domain", envOr("ANYIP_DOMAIN", "anyip.dev"), "Base domain")
+	flag.StringVar(&domainIPStr, "domain-ip", envOr("ANYIP_DOMAIN_IP", ""), "IP address for bare domain resolution")
 	flag.StringVar(&nsStr, "ns", envOr("ANYIP_NS", ""), "Nameservers (comma-separated, e.g. ns1.example.com,ns2.example.com)")
 	flag.StringVar(&cfg.DNSAddr, "dns-addr", envOr("ANYIP_DNS_ADDR", ":53"), "DNS listen address (UDP+TCP)")
 	flag.StringVar(&cfg.DOHAddr, "doh-addr", envOr("ANYIP_DOH_ADDR", ":443"), "DoH + cert distribution (HTTPS)")
@@ -68,6 +71,14 @@ func main() {
 	}
 	if len(cfg.NS) == 0 {
 		cfg.NS = []string{"ns1." + cfg.Domain, "ns2." + cfg.Domain}
+	}
+
+	// Parse domain IP
+	if domainIPStr != "" {
+		cfg.DomainIP = net.ParseIP(domainIPStr)
+		if cfg.DomainIP == nil {
+			log.Fatalf("[anyip] invalid domain IP: %s", domainIPStr)
+		}
 	}
 
 	// Ensure cert directory exists
