@@ -148,13 +148,12 @@ func (m *CertManager) requestCertificate() error {
 		DirectoryURL: directoryURL,
 	}
 
-	// Register account
+	// Register account (ignore "already exists" error)
 	acct := &acme.Account{Contact: []string{"mailto:" + cfg.ACMEEmail}}
 	if _, err := client.Register(ctx, acct, acme.AcceptTOS); err != nil {
-		if !errors.As(err, new(*acme.Error)) {
+		if !strings.Contains(err.Error(), "already exists") {
 			return fmt.Errorf("register: %w", err)
 		}
-		// Already registered, that's fine
 	}
 
 	// Create order for naked + wildcard

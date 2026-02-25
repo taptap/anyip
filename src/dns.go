@@ -55,7 +55,7 @@ func (h *DNSHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		if q.Qtype == dns.TypeSOA {
 			msg.Answer = append(msg.Answer, &dns.SOA{
 				Hdr:     dns.RR_Header{Name: cfg.Domain, Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: cfg.TTL},
-				Ns:      "ns1." + cfg.Domain,
+				Ns:      cfg.NS[0],
 				Mbox:    "admin." + cfg.Domain,
 				Serial:  1,
 				Refresh: 86400,
@@ -68,14 +68,12 @@ func (h *DNSHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 		// Handle NS
 		if q.Qtype == dns.TypeNS && name == domainLower {
-			msg.Answer = append(msg.Answer, &dns.NS{
-				Hdr: dns.RR_Header{Name: cfg.Domain, Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: cfg.TTL},
-				Ns:  "ns1." + cfg.Domain,
-			})
-			msg.Answer = append(msg.Answer, &dns.NS{
-				Hdr: dns.RR_Header{Name: cfg.Domain, Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: cfg.TTL},
-				Ns:  "ns2." + cfg.Domain,
-			})
+			for _, ns := range cfg.NS {
+				msg.Answer = append(msg.Answer, &dns.NS{
+					Hdr: dns.RR_Header{Name: cfg.Domain, Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: cfg.TTL},
+					Ns:  ns,
+				})
+			}
 			continue
 		}
 

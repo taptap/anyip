@@ -23,6 +23,7 @@ type Config struct {
 	ACMEEmail   string
 	ACMEStaging bool
 	CertDir     string
+	NS          []string
 	TTL         uint32
 	OnlyPrivate bool
 	Verbose     bool
@@ -33,7 +34,9 @@ func main() {
 	_ = godotenv.Load()
 
 	var ttlVal uint
+	var nsStr string
 	flag.StringVar(&cfg.Domain, "domain", envOr("ANYIP_DOMAIN", "anyip.dev"), "Base domain")
+	flag.StringVar(&nsStr, "ns", envOr("ANYIP_NS", ""), "Nameservers (comma-separated, e.g. ns1.example.com,ns2.example.com)")
 	flag.StringVar(&cfg.DNSAddr, "dns-addr", envOr("ANYIP_DNS_ADDR", ":53"), "DNS listen address (UDP+TCP)")
 	flag.StringVar(&cfg.DOHAddr, "doh-addr", envOr("ANYIP_DOH_ADDR", ":443"), "DoH + cert distribution (HTTPS)")
 	flag.StringVar(&cfg.DOHPath, "doh-path", envOr("ANYIP_DOH_PATH", "/dns-query"), "DoH endpoint path")
@@ -49,6 +52,22 @@ func main() {
 	// Ensure domain has trailing dot for DNS
 	if !strings.HasSuffix(cfg.Domain, ".") {
 		cfg.Domain = cfg.Domain + "."
+	}
+
+	// Parse nameservers
+	if nsStr != "" {
+		for _, ns := range strings.Split(nsStr, ",") {
+			ns = strings.TrimSpace(ns)
+			if ns != "" {
+				if !strings.HasSuffix(ns, ".") {
+					ns = ns + "."
+				}
+				cfg.NS = append(cfg.NS, ns)
+			}
+		}
+	}
+	if len(cfg.NS) == 0 {
+		cfg.NS = []string{"ns1." + cfg.Domain, "ns2." + cfg.Domain}
 	}
 
 	// Ensure cert directory exists
