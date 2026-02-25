@@ -215,7 +215,7 @@ docker run -d --name anyip \
   -v anyip-certs:/certs \
   -e ANYIP_DOMAIN=anyip.dev \
   -e ANYIP_ACME_EMAIL=admin@anyip.dev \
-  ghcr.io/nicedraft/anyip:latest
+  ghcr.io/taptap/anyip:latest
 ```
 
 ## Architecture
