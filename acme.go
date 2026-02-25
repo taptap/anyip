@@ -244,7 +244,7 @@ func (m *CertManager) requestCertificate() error {
 		return fmt.Errorf("marshal key: %w", err)
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	if err := os.WriteFile(m.keyFile, keyPEM, 0644); err != nil {
+	if err := os.WriteFile(m.keyFile, keyPEM, 0600); err != nil {
 		return fmt.Errorf("write key: %w", err)
 	}
 

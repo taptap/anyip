@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 )
 
 // StartHTTPS starts the HTTPS server for DoH and certificate distribution.
+// Uses dynamic certificate loading so the server starts immediately and picks
+// up the certificate as soon as ACME issuance completes — no restart needed.
 func StartHTTPS(addr string, dnsHandler *DNSHandler, certMgr *CertManager) {
 	mux := http.NewServeMux()
 
@@ -28,20 +31,28 @@ func StartHTTPS(addr string, dnsHandler *DNSHandler, certMgr *CertManager) {
 	// Root
 	mux.HandleFunc("/", handleRoot)
 
-	go func() {
-		certFile, keyFile := certMgr.CertFiles()
-		if !certMgr.HasCertificate() {
-			log.Printf("[https] waiting for certificate before starting HTTPS...")
-			// Fall back to HTTP for cert distribution until cert is ready
-			log.Printf("[https] starting HTTP on %s (cert not yet available)", addr)
-			if err := http.ListenAndServe(addr, mux); err != nil {
-				log.Fatalf("[https] HTTP server failed: %v", err)
+	tlsCfg := &tls.Config{
+		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			certFile, keyFile := certMgr.CertFiles()
+			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+			if err != nil {
+				return nil, fmt.Errorf("certificate not yet available: %w", err)
 			}
-			return
-		}
-		log.Printf("[https] listening on %s", addr)
-		if err := http.ListenAndServeTLS(addr, certFile, keyFile, mux); err != nil {
-			log.Fatalf("[https] HTTPS server failed: %v", err)
+			return &cert, nil
+		},
+	}
+
+	server := &http.Server{
+		Addr:      addr,
+		Handler:   mux,
+		TLSConfig: tlsCfg,
+	}
+
+	go func() {
+		log.Printf("[https] listening on %s (TLS with dynamic cert loading)", addr)
+		// TLS certs are loaded dynamically via GetCertificate, so pass empty strings.
+		if err := server.ListenAndServeTLS("", ""); err != nil {
+			log.Fatalf("[https] server failed: %v", err)
 		}
 	}()
 }

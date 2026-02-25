@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -34,7 +35,7 @@ func main() {
 	flag.StringVar(&cfg.ACMEEmail, "acme-email", envOr("ANYIP_ACME_EMAIL", ""), "Email for Let's Encrypt")
 	flag.BoolVar(&cfg.ACMEStaging, "acme-staging", envOr("ANYIP_ACME_STAGING", "false") == "true", "Use LE staging")
 	flag.StringVar(&cfg.CertDir, "cert-dir", envOr("ANYIP_CERT_DIR", "./certs"), "Certificate storage directory")
-	flag.UintVar(&ttlVal, "ttl", 259200, "DNS response TTL in seconds (72h)")
+	flag.UintVar(&ttlVal, "ttl", envOrUint("ANYIP_TTL", 259200), "DNS response TTL in seconds (72h)")
 	flag.BoolVar(&cfg.OnlyPrivate, "only-private", envOr("ANYIP_ONLY_PRIVATE", "false") == "true", "Only resolve private IPs")
 	flag.BoolVar(&cfg.Verbose, "verbose", envOr("ANYIP_VERBOSE", "false") == "true", "Verbose logging")
 	flag.Parse()
@@ -96,6 +97,15 @@ func main() {
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func envOrUint(key string, fallback uint) uint {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.ParseUint(v, 10, 32); err == nil {
+			return uint(n)
+		}
 	}
 	return fallback
 }
