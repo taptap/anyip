@@ -117,12 +117,30 @@ ns2.anyip.dev.   A     <your-server-ip>
 
 ### 3. Run the Server
 
+**Docker (recommended):**
+
 ```bash
-go build -o bin/anyip ./src
-sudo bin/anyip \
-  -domain anyip.dev \
-  -acme-email admin@anyip.dev
+cp .env.example .env
+# Edit .env — set ANYIP_DOMAIN and ANYIP_ACME_EMAIL
+
+docker run -d --name anyip \
+  --env-file .env \
+  -p 53:53/udp -p 53:53/tcp -p 443:443 \
+  -v anyip-certs:/certs \
+  ghcr.io/taptap/anyip:latest
 ```
+
+**From source:**
+
+```bash
+cp .env.example .env
+# Edit .env
+
+go build -o bin/anyip ./src
+sudo bin/anyip
+```
+
+Configuration is loaded from `.env` file, environment variables, or CLI flags (in that order of precedence: flags > env > `.env` file).
 
 On first run, AnyIP will:
 1. Start the DNS server on port 53
@@ -210,11 +228,21 @@ Example `/cert/info` response:
 ## Docker
 
 ```bash
+# Build locally
+docker build -t anyip .
+
+# Run with .env file
 docker run -d --name anyip \
+  --env-file .env \
   -p 53:53/udp -p 53:53/tcp -p 443:443 \
   -v anyip-certs:/certs \
-  -e ANYIP_DOMAIN=anyip.dev \
-  -e ANYIP_ACME_EMAIL=admin@anyip.dev \
+  anyip
+
+# Or use the published image
+docker run -d --name anyip \
+  --env-file .env \
+  -p 53:53/udp -p 53:53/tcp -p 443:443 \
+  -v anyip-certs:/certs \
   ghcr.io/taptap/anyip:latest
 ```
 
