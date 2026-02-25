@@ -50,6 +50,80 @@ Three components work together:
 
 > **Security note:** The private key is intentionally public. This provides the same security as plain HTTP — it satisfies the browser's secure context requirement, not actual transport security. See [Security](#security) for details.
 
+## Usage
+
+Using the public `anyip.dev` service — no setup required.
+
+### DNS Resolution
+
+Any `<ip>.anyip.dev` hostname resolves to the embedded IP address. Works immediately, no configuration needed:
+
+```bash
+ping myapp-192-168-1-5.anyip.dev      # → 192.168.1.5
+curl http://127-0-0-1.anyip.dev:3000  # → connects to localhost:3000
+```
+
+See [Hostname Format](#hostname-format) for IPv4, IPv6, and nested subdomain rules.
+
+### HTTPS Certificate
+
+Download the wildcard certificate to enable HTTPS on your local dev server:
+
+```bash
+curl -o fullchain.pem https://anyip.dev/cert/fullchain.pem
+curl -o privkey.pem   https://anyip.dev/cert/privkey.pem
+```
+
+Then use it in your framework:
+
+```bash
+# Node.js
+node server.js --cert fullchain.pem --key privkey.pem
+
+# Vite
+vite --https --host \
+  --ssl-cert <(curl -s https://anyip.dev/cert/fullchain.pem) \
+  --ssl-key <(curl -s https://anyip.dev/cert/privkey.pem)
+
+# Go
+http.ListenAndServeTLS(":443", "fullchain.pem", "privkey.pem", handler)
+
+# Nginx
+ssl_certificate     fullchain.pem;
+ssl_certificate_key privkey.pem;
+```
+
+This cert covers `*.anyip.dev` — any single-level subdomain like `myapp-192-168-1-5.anyip.dev`.
+
+### Subdomain Certificate
+
+For nested subdomains like `user1.127-0-0-1.anyip.dev` (useful for per-user preview domains), request a per-IP wildcard cert:
+
+```bash
+# Request cert issuance (first time takes ~10-30s)
+curl -X POST https://anyip.dev/cert/sub/127-0-0-1
+
+# Download
+curl -o fullchain.pem https://anyip.dev/cert/sub/127-0-0-1/fullchain.pem
+curl -o privkey.pem   https://anyip.dev/cert/sub/127-0-0-1/privkey.pem
+```
+
+Now all `*.127-0-0-1.anyip.dev` hostnames have valid HTTPS. See [Wildcard Certificate Coverage](#wildcard-certificate-coverage) for details.
+
+### DNS over HTTPS (DoH)
+
+Use AnyIP as an encrypted DNS resolver in your browser:
+
+- **Chrome/Edge:** Settings → Security → Use secure DNS → `https://anyip.dev/dns-query`
+- **Firefox:** Settings → DNS over HTTPS → `https://anyip.dev/dns-query`
+
+Or query directly:
+
+```bash
+curl "https://anyip.dev/dns-query?name=127-0-0-1.anyip.dev&type=A"
+# {"Status":0,"Answer":[{"name":"127-0-0-1.anyip.dev.","type":1,"TTL":259200,"data":"127.0.0.1"}]}
+```
+
 ## Hostname Format
 
 All names are single-label subdomains (to stay within `*.yourdomain` wildcard coverage):
@@ -113,7 +187,9 @@ For single-label subdomains, the root wildcard cert (`*.anyip.dev`) works. For n
 - **Long TTL** — 72-hour TTL for static IP mappings
 - **Single binary** — zero dependencies, cross-platform
 
-## Quick Start
+## Self-Hosting
+
+Deploy your own AnyIP instance.
 
 ### 1. Prerequisites
 
@@ -162,30 +238,7 @@ Configuration is loaded from `.env` file, environment variables, or CLI flags (i
 On first run, AnyIP will:
 1. Start the DNS server on port 53
 2. Request a wildcard certificate from Let's Encrypt via DNS-01
-3. Start the DoH server on port 443 with the new certificate
-4. Serve the certificate at `https://anyip.dev/cert`
-
-### 4. Use the Certificate
-
-Developers download the wildcard cert for their local services:
-
-```bash
-# Download cert + key
-curl -o cert.pem https://anyip.dev/cert/fullchain.pem
-curl -o key.pem  https://anyip.dev/cert/privkey.pem
-
-# Use in your dev server (Node.js example)
-node server.js --cert cert.pem --key key.pem --host myapp-192-168-1-5.anyip.dev
-```
-
-Or in a single line for quick setups:
-
-```bash
-# Vite
-vite --https --host \
-  --ssl-cert <(curl -s https://anyip.dev/cert/fullchain.pem) \
-  --ssl-key <(curl -s https://anyip.dev/cert/privkey.pem)
-```
+3. Start the HTTPS server on port 443 (DoH + cert distribution)
 
 ## Configuration
 
@@ -204,27 +257,7 @@ vite --https --host \
 | `-cert-subs` | `ANYIP_CERT_SUBS` | | Allowed IP labels for subdomain certs (comma-separated) |
 | `-verbose` | `ANYIP_VERBOSE` | `false` | Verbose logging |
 
-## DNS over HTTPS
-
-AnyIP provides a DoH endpoint compatible with RFC 8484:
-
-```bash
-# JSON format (GET)
-curl "https://anyip.dev/dns-query?name=127-0-0-1.anyip.dev&type=A" \
-  -H "Accept: application/dns-json"
-
-# Wire format (POST)
-curl "https://anyip.dev/dns-query" \
-  -H "Content-Type: application/dns-message" \
-  -H "Accept: application/dns-message" \
-  --data-binary @query.bin
-```
-
-Configure as your DNS resolver:
-- **Chrome/Edge:** Settings → Security → Use secure DNS → `https://anyip.dev/dns-query`
-- **Firefox:** Settings → DNS over HTTPS → `https://anyip.dev/dns-query`
-
-## Certificate API
+## API Reference
 
 ### Root Wildcard (`*.anyip.dev`)
 
@@ -263,6 +296,20 @@ node server.js --cert cert.pem --key key.pem --host user1.127-0-0-1.anyip.dev
 ```
 
 > **Rate limit:** Let's Encrypt allows 50 certificates per registered domain per week. Use `ANYIP_CERT_SUBS` to whitelist only the IP labels you actually need.
+
+### DNS over HTTPS (DoH)
+
+RFC 8484 compatible endpoint at `/dns-query`.
+
+```bash
+# JSON format (GET)
+curl "https://anyip.dev/dns-query?name=127-0-0-1.anyip.dev&type=A"
+
+# Wire format (POST)
+curl "https://anyip.dev/dns-query" \
+  -H "Content-Type: application/dns-message" \
+  --data-binary @query.bin
+```
 
 ## Docker
 
