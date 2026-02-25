@@ -22,6 +22,15 @@ func (h *DNSHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	msg.SetReply(r)
 	msg.Authoritative = true
 
+	// Echo EDNS OPT record if present in the query
+	if opt := r.IsEdns0(); opt != nil {
+		edns := new(dns.OPT)
+		edns.Hdr.Name = "."
+		edns.Hdr.Rrtype = dns.TypeOPT
+		edns.SetUDPSize(opt.UDPSize())
+		msg.Extra = append(msg.Extra, edns)
+	}
+
 	for _, q := range r.Question {
 		name := strings.ToLower(q.Name)
 		domainLower := strings.ToLower(cfg.Domain)
@@ -61,7 +70,7 @@ func (h *DNSHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 				Refresh: 86400,
 				Retry:   7200,
 				Expire:  3600000,
-				Minttl:  cfg.TTL,
+				Minttl:  300, // negative cache TTL: 5 minutes (important for ACME challenges)
 			})
 			continue
 		}
