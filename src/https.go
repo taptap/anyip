@@ -28,11 +28,32 @@ func StartHTTPS(addr string, dnsHandler *DNSHandler, certMgr *CertManager) {
 	mux.HandleFunc("/cert/privkey.pem", certFileHandler(certMgr.keyFile, "application/x-pem-file"))
 	mux.HandleFunc("/cert/info", certInfoHandler(certMgr))
 
+	// Subdomain certificate distribution
+	mux.HandleFunc("/cert/sub/", subCertHandler(certMgr))
+
 	// Root
 	mux.HandleFunc("/", handleRoot)
 
 	tlsCfg := &tls.Config{
 		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			serverName := strings.ToLower(hello.ServerName)
+			domain := strings.TrimSuffix(strings.ToLower(cfg.Domain), ".")
+
+			// Multi-level subdomain → try per-label cert
+			// e.g., foo.127-0-0-1.anyip.dev → label "127-0-0-1"
+			if strings.HasSuffix(serverName, "."+domain) {
+				sub := strings.TrimSuffix(serverName, "."+domain)
+				labels := strings.Split(sub, ".")
+				if len(labels) >= 2 {
+					label := strings.Join(labels[1:], ".")
+					cf, kf := certMgr.SubdomainCertFiles(label)
+					if cert, err := tls.LoadX509KeyPair(cf, kf); err == nil {
+						return &cert, nil
+					}
+				}
+			}
+
+			// Fall back to root cert
 			certFile, keyFile := certMgr.CertFiles()
 			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 			if err != nil {
@@ -178,6 +199,85 @@ func certInfoHandler(certMgr *CertManager) http.HandlerFunc {
 	}
 }
 
+func subCertHandler(certMgr *CertManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Parse path: /cert/sub/{label}[/{action}]
+		path := strings.TrimPrefix(r.URL.Path, "/cert/sub/")
+		parts := strings.SplitN(path, "/", 2)
+		label := parts[0]
+		action := ""
+		if len(parts) > 1 {
+			action = parts[1]
+		}
+
+		if label == "" {
+			http.Error(w, `{"error":"missing label"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Validate label is a valid IP pattern
+		if extractIP(label) == nil {
+			http.Error(w, `{"error":"invalid IP label"}`, http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		switch {
+		case r.Method == http.MethodPost && action == "":
+			// Check whitelist before issuance
+			if !cfg.CertSubs[label] {
+				http.Error(w, `{"error":"label not in allowed list"}`, http.StatusForbidden)
+				return
+			}
+			// Request cert issuance
+			if err := certMgr.RequestSubdomainCert(label); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+				return
+			}
+			data, err := certMgr.SubdomainCertInfoJSON(label)
+			if err != nil {
+				http.Error(w, `{"error":"cert issued but info unavailable"}`, http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(data)
+
+		case action == "fullchain.pem":
+			certFile, _ := certMgr.SubdomainCertFiles(label)
+			data, err := os.ReadFile(certFile)
+			if err != nil {
+				http.Error(w, "certificate not available", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/x-pem-file")
+			w.Write(data)
+
+		case action == "privkey.pem":
+			_, keyFile := certMgr.SubdomainCertFiles(label)
+			data, err := os.ReadFile(keyFile)
+			if err != nil {
+				http.Error(w, "key not available", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/x-pem-file")
+			w.Write(data)
+
+		case action == "info":
+			data, err := certMgr.SubdomainCertInfoJSON(label)
+			if err != nil {
+				http.Error(w, `{"error":"certificate not available"}`, http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(data)
+
+		default:
+			http.NotFound(w, r)
+		}
+	}
+}
+
 func handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -187,13 +287,20 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprintf(w, "AnyIP - DNS server for development HTTPS\n\n")
 	fmt.Fprintf(w, "Usage:\n")
-	fmt.Fprintf(w, "  dig 127-0-0-1.%s +short          → 127.0.0.1\n", domain)
-	fmt.Fprintf(w, "  dig myapp-192-168-1-5.%s +short   → 192.168.1.5\n", domain)
+	fmt.Fprintf(w, "  dig 127-0-0-1.%s +short              → 127.0.0.1\n", domain)
+	fmt.Fprintf(w, "  dig myapp-192-168-1-5.%s +short       → 192.168.1.5\n", domain)
+	fmt.Fprintf(w, "  dig user1.127-0-0-1.%s +short         → 127.0.0.1\n", domain)
 	fmt.Fprintf(w, "\n")
-	fmt.Fprintf(w, "Certificates:\n")
+	fmt.Fprintf(w, "Wildcard Certificate (*.%s):\n", domain)
 	fmt.Fprintf(w, "  curl https://%s/cert/fullchain.pem\n", domain)
 	fmt.Fprintf(w, "  curl https://%s/cert/privkey.pem\n", domain)
 	fmt.Fprintf(w, "  curl https://%s/cert/info\n", domain)
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "Subdomain Certificate (*.{ip}.%s):\n", domain)
+	fmt.Fprintf(w, "  curl -X POST https://%s/cert/sub/127-0-0-1   (request cert)\n", domain)
+	fmt.Fprintf(w, "  curl https://%s/cert/sub/127-0-0-1/fullchain.pem\n", domain)
+	fmt.Fprintf(w, "  curl https://%s/cert/sub/127-0-0-1/privkey.pem\n", domain)
+	fmt.Fprintf(w, "  curl https://%s/cert/sub/127-0-0-1/info\n", domain)
 	fmt.Fprintf(w, "\n")
 	fmt.Fprintf(w, "DNS over HTTPS:\n")
 	fmt.Fprintf(w, "  https://%s/dns-query\n", domain)

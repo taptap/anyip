@@ -29,6 +29,7 @@ type Config struct {
 	TTL         uint32
 	OnlyPrivate bool
 	Verbose     bool
+	CertSubs    map[string]bool // allowed IP labels for subdomain certs
 }
 
 func main() {
@@ -36,7 +37,7 @@ func main() {
 	_ = godotenv.Load()
 
 	var ttlVal uint
-	var nsStr, domainIPStr string
+	var nsStr, domainIPStr, certSubsStr string
 	flag.StringVar(&cfg.Domain, "domain", envOr("ANYIP_DOMAIN", "anyip.dev"), "Base domain")
 	flag.StringVar(&domainIPStr, "domain-ip", envOr("ANYIP_DOMAIN_IP", ""), "IP address for bare domain resolution")
 	flag.StringVar(&nsStr, "ns", envOr("ANYIP_NS", ""), "Nameservers (comma-separated, e.g. ns1.example.com,ns2.example.com)")
@@ -48,9 +49,21 @@ func main() {
 	flag.StringVar(&cfg.CertDir, "cert-dir", envOr("ANYIP_CERT_DIR", "./certs"), "Certificate storage directory")
 	flag.UintVar(&ttlVal, "ttl", envOrUint("ANYIP_TTL", 259200), "DNS response TTL in seconds (72h)")
 	flag.BoolVar(&cfg.OnlyPrivate, "only-private", envOr("ANYIP_ONLY_PRIVATE", "false") == "true", "Only resolve private IPs")
+	flag.StringVar(&certSubsStr, "cert-subs", envOr("ANYIP_CERT_SUBS", ""), "Allowed IP labels for subdomain certs (comma-separated, e.g. 127-0-0-1)")
 	flag.BoolVar(&cfg.Verbose, "verbose", envOr("ANYIP_VERBOSE", "false") == "true", "Verbose logging")
 	flag.Parse()
 	cfg.TTL = uint32(ttlVal)
+
+	// Parse allowed subdomain cert labels
+	cfg.CertSubs = make(map[string]bool)
+	if certSubsStr != "" {
+		for _, label := range strings.Split(certSubsStr, ",") {
+			label = strings.TrimSpace(label)
+			if label != "" {
+				cfg.CertSubs[label] = true
+			}
+		}
+	}
 
 	// Ensure domain has trailing dot for DNS
 	if !strings.HasSuffix(cfg.Domain, ".") {
@@ -115,6 +128,13 @@ func main() {
 	}
 	if cfg.ACMEEmail != "" {
 		log.Printf("[anyip] ACME enabled (email: %s, staging: %v)", cfg.ACMEEmail, cfg.ACMEStaging)
+	}
+	if len(cfg.CertSubs) > 0 {
+		labels := make([]string, 0, len(cfg.CertSubs))
+		for l := range cfg.CertSubs {
+			labels = append(labels, l)
+		}
+		log.Printf("[anyip] subdomain certs allowed for: %s", strings.Join(labels, ", "))
 	}
 
 	fmt.Printf("\n  DNS:   %s (UDP+TCP)\n", cfg.DNSAddr)

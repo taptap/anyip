@@ -44,16 +44,34 @@ func (h *DNSHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		}
 
 		// Handle ACME DNS-01 challenges
+		// Supports both root (_acme-challenge.anyip.dev) and subdomain
+		// (_acme-challenge.127-0-0-1.anyip.dev) challenges.
 		if q.Qtype == dns.TypeTXT {
-			acmePrefix := "_acme-challenge." + domainLower
-			if name == acmePrefix || strings.HasSuffix(name, "."+acmePrefix) {
-				if token := h.challenges.Get(); token != "" {
+			sub := strings.TrimSuffix(name, domainLower)
+			sub = strings.TrimSuffix(sub, ".")
+
+			var challengeLabel string
+			var isACME bool
+			if sub == "_acme-challenge" {
+				challengeLabel = ""
+				isACME = true
+			} else if strings.HasPrefix(sub, "_acme-challenge.") {
+				challengeLabel = strings.TrimPrefix(sub, "_acme-challenge.")
+				isACME = true
+			}
+
+			if isACME {
+				if token := h.challenges.Get(challengeLabel); token != "" {
 					msg.Answer = append(msg.Answer, &dns.TXT{
 						Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 60},
 						Txt: []string{token},
 					})
 					if cfg.Verbose {
-						log.Printf("[dns] ACME challenge response: %s", token[:min(16, len(token))]+"...")
+						labelStr := "root"
+						if challengeLabel != "" {
+							labelStr = challengeLabel
+						}
+						log.Printf("[dns] ACME challenge response (%s): %s", labelStr, token[:min(16, len(token))]+"...")
 					}
 				}
 				continue
