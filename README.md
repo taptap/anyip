@@ -118,8 +118,8 @@ ns2.anyip.dev.   A     <your-server-ip>
 ### 3. Run the Server
 
 ```bash
-go build -o anyip .
-sudo ./anyip \
+go build -o bin/anyip ./src
+sudo bin/anyip \
   -domain anyip.dev \
   -acme-email admin@anyip.dev
 ```

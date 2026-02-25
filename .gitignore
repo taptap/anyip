@@ -1,6 +1,5 @@
 # Binary
-anyip
-anyip.exe
+bin/
 
 # TLS
 *.pem
