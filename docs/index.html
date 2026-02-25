@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <title>AnyIP — DNS for development HTTPS</title>
+    <meta name="description" content="Resolve any IP address from a hostname. Wildcard TLS certificates included. Zero config.">
+    <style>
+      :root {
+        --pico-font-size: 16px;
+      }
+      .hero {
+        text-align: center;
+        padding: 2rem 0 1rem;
+      }
+      .hero h1 {
+        margin-bottom: 0.25rem;
+        font-size: 2.5rem;
+      }
+      .hero p {
+        font-size: 1.2rem;
+        opacity: 0.8;
+        margin-bottom: 2rem;
+      }
+      .hero pre {
+        text-align: left;
+        display: inline-block;
+        margin: 0 auto;
+      }
+      .grid-features {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1.5rem;
+      }
+      .grid-features article {
+        margin: 0;
+      }
+      .grid-features article h3 {
+        margin-bottom: 0.5rem;
+      }
+      section {
+        padding: 2rem 0;
+      }
+      footer {
+        text-align: center;
+        padding: 2rem 0;
+        opacity: 0.7;
+      }
+      kbd {
+        font-family: var(--pico-font-family-monospace);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+
+      <!-- Hero -->
+      <section class="hero">
+        <h1>AnyIP</h1>
+        <p>DNS server for development HTTPS — resolve any IP from a hostname, with free wildcard TLS.</p>
+        <pre><code>$ dig 127-0-0-1.anyip.dev +short
+127.0.0.1
+
+$ dig myapp-192-168-1-5.anyip.dev +short
+192.168.1.5
+
+$ curl https://myapp-127-0-0-1.anyip.dev  # ✅ valid TLS</code></pre>
+      </section>
+
+      <hr>
+
+      <!-- Usage -->
+      <section>
+        <h2>Usage</h2>
+        <p>Use the public <code>anyip.dev</code> service — no setup required.</p>
+
+        <h3>DNS Resolution</h3>
+        <p>Embed any IP address in the hostname. It just works:</p>
+        <pre><code>ping myapp-192-168-1-5.anyip.dev      # → 192.168.1.5
+curl http://127-0-0-1.anyip.dev:3000  # → connects to localhost:3000
+
+# Nested subdomains work too
+dig preview.127-0-0-1.anyip.dev +short  # → 127.0.0.1</code></pre>
+
+        <h3>HTTPS Certificate</h3>
+        <p>Download the wildcard certificate to enable HTTPS on your local dev server:</p>
+        <pre><code># Download cert + key
+curl -o fullchain.pem https://anyip.dev/cert/fullchain.pem
+curl -o privkey.pem   https://anyip.dev/cert/privkey.pem
+
+# Use with any framework
+vite --https --host \
+  --ssl-cert fullchain.pem --ssl-key privkey.pem</code></pre>
+
+        <h3>Subdomain Certificate</h3>
+        <p>For nested subdomains like <code>user1.127-0-0-1.anyip.dev</code>, request a per-IP wildcard cert:</p>
+        <pre><code># Request issuance (~10-30s on first call)
+curl -X POST https://anyip.dev/cert/sub/127-0-0-1
+
+# Download
+curl -o fullchain.pem https://anyip.dev/cert/sub/127-0-0-1/fullchain.pem
+curl -o privkey.pem   https://anyip.dev/cert/sub/127-0-0-1/privkey.pem</code></pre>
+
+        <h3>DNS over HTTPS</h3>
+        <p>Use AnyIP as an encrypted DNS resolver in your browser:</p>
+        <pre><code># Browser: Settings → Secure DNS → Custom
+https://anyip.dev/dns-query
+
+# Or query directly
+curl "https://anyip.dev/dns-query?name=127-0-0-1.anyip.dev&type=A"</code></pre>
+      </section>
+
+      <hr>
+
+      <!-- Features -->
+      <section>
+        <h2>Features</h2>
+        <div class="grid-features">
+          <article>
+            <h3>Embedded IP Resolution</h3>
+            <p>Any <code>&lt;name&gt;-&lt;ip&gt;.domain</code> hostname resolves to the embedded IP. IPv4 and IPv6 supported.</p>
+          </article>
+          <article>
+            <h3>Nested Subdomains</h3>
+            <p><code>prefix.ip.domain</code> also resolves — perfect for per-user or per-branch preview domains.</p>
+          </article>
+          <article>
+            <h3>Automatic TLS</h3>
+            <p>Let's Encrypt wildcard certificates via DNS-01, with auto-renewal. Root and per-IP subdomain certs.</p>
+          </article>
+          <article>
+            <h3>Certificate Distribution</h3>
+            <p>Download certs over HTTPS. One <code>curl</code> command to get your dev server running with valid TLS.</p>
+          </article>
+          <article>
+            <h3>DNS over HTTPS</h3>
+            <p>RFC 8484 compliant DoH endpoint. Use as your browser's secure DNS resolver.</p>
+          </article>
+          <article>
+            <h3>Single Binary</h3>
+            <p>Written in Go. Zero dependencies, cross-platform. Deploy anywhere in minutes.</p>
+          </article>
+        </div>
+      </section>
+
+      <hr>
+
+      <!-- Self-hosting -->
+      <section>
+        <h2>Self-Hosting</h2>
+        <p>Deploy your own instance with Docker:</p>
+        <pre><code># 1. Point NS records to your server
+#    anyip.dev.  NS  ns1.anyip.dev.
+#    ns1.anyip.dev.  A  &lt;your-server-ip&gt;
+
+# 2. Run with Docker
+docker run -d --name anyip \
+  -e ANYIP_DOMAIN=yourdomain.dev \
+  -e ANYIP_ACME_EMAIL=you@example.com \
+  -p 53:53/udp -p 53:53/tcp -p 443:443 \
+  -v anyip-certs:/certs \
+  ghcr.io/taptap/anyip:latest</code></pre>
+        <p>Or build from source: <code>go build -o anyip ./src</code></p>
+        <p>See the <a href="https://github.com/taptap/anyip#self-hosting">full self-hosting guide</a> for details.</p>
+      </section>
+
+    </main>
+
+    <footer class="container">
+      <p>
+        <a href="https://github.com/taptap/anyip">GitHub</a> ·
+        MIT License
+      </p>
+    </footer>
+  </body>
+</html>

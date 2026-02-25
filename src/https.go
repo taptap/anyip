@@ -284,6 +284,12 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	domain := strings.TrimSuffix(cfg.Domain, ".")
+
+	// Redirect bare domain to www (for GitHub Pages)
+	if strings.EqualFold(r.Host, domain) {
+		http.Redirect(w, r, "https://www."+domain+"/", http.StatusMovedPermanently)
+		return
+	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprintf(w, "AnyIP - DNS server for development HTTPS\n\n")
 	fmt.Fprintf(w, "Usage:\n")
@@ -353,6 +359,8 @@ func buildDOHJSON(resp *dns.Msg) dohJSON {
 			data = rr.A.String()
 		case *dns.AAAA:
 			data = rr.AAAA.String()
+		case *dns.CNAME:
+			data = rr.Target
 		case *dns.TXT:
 			data = strings.Join(rr.Txt, " ")
 		default:

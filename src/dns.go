@@ -145,6 +145,21 @@ func (h *DNSHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			continue
 		}
 
+		// Static CNAME records
+		if target, ok := cfg.CNAME[sub]; ok {
+			switch q.Qtype {
+			case dns.TypeCNAME, dns.TypeA, dns.TypeAAAA, dns.TypeANY:
+				msg.Answer = append(msg.Answer, &dns.CNAME{
+					Hdr:    dns.RR_Header{Name: q.Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: cfg.TTL},
+					Target: target,
+				})
+				if cfg.Verbose {
+					log.Printf("[dns] CNAME: %s → %s", sub, target)
+				}
+			}
+			continue
+		}
+
 		ip := extractIP(sub)
 		if ip == nil {
 			continue

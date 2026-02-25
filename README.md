@@ -255,6 +255,7 @@ On first run, AnyIP will:
 | `-ttl` | `ANYIP_TTL` | `259200` | DNS response TTL in seconds (72h) |
 | `-only-private` | `ANYIP_ONLY_PRIVATE` | `false` | Only resolve private/reserved IPs |
 | `-cert-subs` | `ANYIP_CERT_SUBS` | | Allowed IP labels for subdomain certs (comma-separated) |
+| `-cname` | `ANYIP_CNAME` | | Static CNAME records (`label=target,...`, e.g. `www=taptap.github.io`) |
 | `-verbose` | `ANYIP_VERBOSE` | `false` | Verbose logging |
 
 ## API Reference

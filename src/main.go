@@ -29,7 +29,8 @@ type Config struct {
 	TTL         uint32
 	OnlyPrivate bool
 	Verbose     bool
-	CertSubs    map[string]bool // allowed IP labels for subdomain certs
+	CertSubs    map[string]bool   // allowed IP labels for subdomain certs
+	CNAME       map[string]string // static CNAME records: label → target
 }
 
 func main() {
@@ -37,7 +38,7 @@ func main() {
 	_ = godotenv.Load()
 
 	var ttlVal uint
-	var nsStr, domainIPStr, certSubsStr string
+	var nsStr, domainIPStr, certSubsStr, cnameStr string
 	flag.StringVar(&cfg.Domain, "domain", envOr("ANYIP_DOMAIN", "anyip.dev"), "Base domain")
 	flag.StringVar(&domainIPStr, "domain-ip", envOr("ANYIP_DOMAIN_IP", ""), "IP address for bare domain resolution")
 	flag.StringVar(&nsStr, "ns", envOr("ANYIP_NS", ""), "Nameservers (comma-separated, e.g. ns1.example.com,ns2.example.com)")
@@ -50,6 +51,7 @@ func main() {
 	flag.UintVar(&ttlVal, "ttl", envOrUint("ANYIP_TTL", 259200), "DNS response TTL in seconds (72h)")
 	flag.BoolVar(&cfg.OnlyPrivate, "only-private", envOr("ANYIP_ONLY_PRIVATE", "false") == "true", "Only resolve private IPs")
 	flag.StringVar(&certSubsStr, "cert-subs", envOr("ANYIP_CERT_SUBS", ""), "Allowed IP labels for subdomain certs (comma-separated, e.g. 127-0-0-1)")
+	flag.StringVar(&cnameStr, "cname", envOr("ANYIP_CNAME", ""), "Static CNAME records (comma-separated label=target, e.g. www=taptap.github.io)")
 	flag.BoolVar(&cfg.Verbose, "verbose", envOr("ANYIP_VERBOSE", "false") == "true", "Verbose logging")
 	flag.Parse()
 	cfg.TTL = uint32(ttlVal)
@@ -61,6 +63,24 @@ func main() {
 			label = strings.TrimSpace(label)
 			if label != "" {
 				cfg.CertSubs[label] = true
+			}
+		}
+	}
+
+	// Parse static CNAME records
+	cfg.CNAME = make(map[string]string)
+	if cnameStr != "" {
+		for _, entry := range strings.Split(cnameStr, ",") {
+			entry = strings.TrimSpace(entry)
+			if parts := strings.SplitN(entry, "=", 2); len(parts) == 2 {
+				label := strings.TrimSpace(parts[0])
+				target := strings.TrimSpace(parts[1])
+				if label != "" && target != "" {
+					if !strings.HasSuffix(target, ".") {
+						target = target + "."
+					}
+					cfg.CNAME[label] = target
+				}
 			}
 		}
 	}
@@ -135,6 +155,13 @@ func main() {
 			labels = append(labels, l)
 		}
 		log.Printf("[anyip] subdomain certs allowed for: %s", strings.Join(labels, ", "))
+	}
+	if len(cfg.CNAME) > 0 {
+		entries := make([]string, 0, len(cfg.CNAME))
+		for l, t := range cfg.CNAME {
+			entries = append(entries, l+"→"+strings.TrimSuffix(t, "."))
+		}
+		log.Printf("[anyip] CNAME records: %s", strings.Join(entries, ", "))
 	}
 
 	fmt.Printf("\n  DNS:   %s (UDP+TCP)\n", cfg.DNSAddr)
