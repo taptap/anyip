@@ -103,6 +103,18 @@ func (h *DNSHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 						AAAA: cfg.DomainIP,
 					})
 				}
+			case dns.TypeANY:
+				if ipv4 := cfg.DomainIP.To4(); ipv4 != nil {
+					msg.Answer = append(msg.Answer, &dns.A{
+						Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: cfg.TTL},
+						A:   ipv4,
+					})
+				} else {
+					msg.Answer = append(msg.Answer, &dns.AAAA{
+						Hdr:  dns.RR_Header{Name: q.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: cfg.TTL},
+						AAAA: cfg.DomainIP,
+					})
+				}
 			}
 			continue
 		}
