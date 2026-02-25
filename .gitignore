@@ -11,6 +11,9 @@ bin/
 .vscode/
 *.swp
 
+# Env
+.env
+
 # OS
 .DS_Store
 Thumbs.db

@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/joho/godotenv"
 )
 
 var cfg Config
@@ -27,6 +29,9 @@ type Config struct {
 }
 
 func main() {
+	// Load .env file if present (does not override existing env vars)
+	_ = godotenv.Load()
+
 	var ttlVal uint
 	flag.StringVar(&cfg.Domain, "domain", envOr("ANYIP_DOMAIN", "anyip.dev"), "Base domain")
 	flag.StringVar(&cfg.DNSAddr, "dns-addr", envOr("ANYIP_DNS_ADDR", ":53"), "DNS listen address (UDP+TCP)")
