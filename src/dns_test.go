@@ -248,6 +248,79 @@ func TestDNS_ACMEChallenge(t *testing.T) {
 	}
 }
 
+func TestDNS_DefaultWWW(t *testing.T) {
+	// When DomainIP is set and no explicit CNAME for www, www should resolve to DomainIP
+	handler, _ := setupDNSTest()
+	// Remove the explicit www CNAME to test default behavior
+	delete(cfg.CNAME, "www")
+
+	t.Run("A record", func(t *testing.T) {
+		resp := queryDNS(handler, "www.test.dev.", dns.TypeA)
+		if len(resp.Answer) != 1 {
+			t.Fatalf("got %d answers, want 1", len(resp.Answer))
+		}
+		a, ok := resp.Answer[0].(*dns.A)
+		if !ok {
+			t.Fatalf("answer is %T, want *dns.A", resp.Answer[0])
+		}
+		if a.A.String() != "1.2.3.4" {
+			t.Errorf("got %s, want 1.2.3.4", a.A.String())
+		}
+	})
+
+	t.Run("ANY record", func(t *testing.T) {
+		resp := queryDNS(handler, "www.test.dev.", dns.TypeANY)
+		if len(resp.Answer) != 1 {
+			t.Fatalf("got %d answers, want 1", len(resp.Answer))
+		}
+		if _, ok := resp.Answer[0].(*dns.A); !ok {
+			t.Fatalf("answer is %T, want *dns.A", resp.Answer[0])
+		}
+	})
+
+	t.Run("AAAA with IPv6 DomainIP", func(t *testing.T) {
+		cfg.DomainIP = net.ParseIP("2001:db8::1")
+		resp := queryDNS(handler, "www.test.dev.", dns.TypeAAAA)
+		if len(resp.Answer) != 1 {
+			t.Fatalf("got %d answers, want 1", len(resp.Answer))
+		}
+		aaaa, ok := resp.Answer[0].(*dns.AAAA)
+		if !ok {
+			t.Fatalf("answer is %T, want *dns.AAAA", resp.Answer[0])
+		}
+		want := net.ParseIP("2001:db8::1")
+		if !aaaa.AAAA.Equal(want) {
+			t.Errorf("got %s, want %s", aaaa.AAAA, want)
+		}
+	})
+
+	t.Run("no DomainIP means no www default", func(t *testing.T) {
+		cfg.DomainIP = nil
+		resp := queryDNS(handler, "www.test.dev.", dns.TypeA)
+		if len(resp.Answer) != 0 {
+			t.Errorf("got %d answers, want 0 when DomainIP is nil", len(resp.Answer))
+		}
+	})
+}
+
+func TestDNS_ExplicitCNAMEOverridesDefaultWWW(t *testing.T) {
+	// When explicit CNAME is set for www, it should take precedence over default DomainIP
+	handler, _ := setupDNSTest()
+	// setupDNSTest already sets CNAME["www"] = "example.github.io."
+
+	resp := queryDNS(handler, "www.test.dev.", dns.TypeA)
+	if len(resp.Answer) != 1 {
+		t.Fatalf("got %d answers, want 1", len(resp.Answer))
+	}
+	cname, ok := resp.Answer[0].(*dns.CNAME)
+	if !ok {
+		t.Fatalf("answer is %T, want *dns.CNAME (explicit CNAME should win)", resp.Answer[0])
+	}
+	if cname.Target != "example.github.io." {
+		t.Errorf("target = %s, want example.github.io.", cname.Target)
+	}
+}
+
 func TestDNS_OutOfZone(t *testing.T) {
 	handler, _ := setupDNSTest()
 	resp := queryDNS(handler, "other.com.", dns.TypeA)

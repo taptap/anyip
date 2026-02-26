@@ -104,8 +104,29 @@ func (h *DNSHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			continue
 		}
 
-		// Bare domain → resolve to server IP
-		if name == domainLower && cfg.DomainIP != nil {
+		// Strip domain suffix to get subdomain
+		sub := strings.TrimSuffix(name, domainLower)
+		sub = strings.TrimSuffix(sub, ".")
+
+		// Static CNAME records (explicit CNAME takes precedence)
+		if target, ok := cfg.CNAME[sub]; ok {
+			switch q.Qtype {
+			case dns.TypeCNAME, dns.TypeA, dns.TypeAAAA, dns.TypeANY:
+				msg.Answer = append(msg.Answer, &dns.CNAME{
+					Hdr:    dns.RR_Header{Name: q.Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: cfg.TTL},
+					Target: target,
+				})
+				if cfg.Verbose {
+					log.Printf("[dns] CNAME: %s → %s", sub, target)
+				}
+			}
+			continue
+		}
+
+		// Bare domain and default www → resolve to DomainIP.
+		// www defaults to DomainIP when no explicit CNAME is configured,
+		// ensuring the bare-domain → www redirect (in HTTPS handler) works.
+		if (sub == "" || sub == "www") && cfg.DomainIP != nil {
 			switch q.Qtype {
 			case dns.TypeA:
 				if ipv4 := cfg.DomainIP.To4(); ipv4 != nil {
@@ -137,26 +158,7 @@ func (h *DNSHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 			continue
 		}
 
-		// Strip domain suffix to get subdomain
-		sub := strings.TrimSuffix(name, domainLower)
-		sub = strings.TrimSuffix(sub, ".")
-
 		if sub == "" {
-			continue
-		}
-
-		// Static CNAME records
-		if target, ok := cfg.CNAME[sub]; ok {
-			switch q.Qtype {
-			case dns.TypeCNAME, dns.TypeA, dns.TypeAAAA, dns.TypeANY:
-				msg.Answer = append(msg.Answer, &dns.CNAME{
-					Hdr:    dns.RR_Header{Name: q.Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: cfg.TTL},
-					Target: target,
-				})
-				if cfg.Verbose {
-					log.Printf("[dns] CNAME: %s → %s", sub, target)
-				}
-			}
 			continue
 		}
 
