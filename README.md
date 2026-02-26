@@ -30,16 +30,16 @@ AnyIP solves all three: any developer can instantly get a valid HTTPS hostname f
 ## How It Works
 
 ```
-Developer's browser                    AnyIP server (public)
-        │                                      │
-        ├─ DNS query: myapp-192-168-1-5.tap.dev ─►│
-        │◄── A record: 192.168.1.5 ────────────┤
-        │                                      │
-        ├─ TLS handshake ──────────────────────►│ (local service on 192.168.1.5,
-        │   cert: *.tap.dev (Let's Encrypt)     │  using downloaded wildcard cert)
-        │◄── valid certificate ─────────────────┤
-        │                                      │
-        └─ secure context ✅                    │
+Developer's browser                          AnyIP server (public)
+        │                                            │
+        ├─ DNS query: myapp-192-168-1-5.anyip.dev ──►│
+        │◄── A record: 192.168.1.5 ──────────────────┤
+        │                                            │
+        ├─ TLS handshake ───────────────────────────►│ (local service on 192.168.1.5,
+        │   cert: *.anyip.dev (Let's Encrypt)        │  using downloaded wildcard cert)
+        │◄── valid certificate ──────────────────────┤
+        │                                            │
+        └─ secure context ✅                         │
 ```
 
 Three components work together:
