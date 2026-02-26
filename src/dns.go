@@ -231,14 +231,28 @@ var privateNets []*net.IPNet
 
 func init() {
 	for _, cidr := range []string{
+		// RFC 1918 — Private address space
 		"10.0.0.0/8",
 		"172.16.0.0/12",
 		"192.168.0.0/16",
+		// RFC 1122 — Loopback
 		"127.0.0.0/8",
+		// RFC 6598 — CGNAT (Carrier-Grade NAT), used by Tailscale, ISP NATs
+		"100.64.0.0/10",
+		// RFC 3927 — Link-local
 		"169.254.0.0/16",
+		// RFC 5737 — Documentation/example ranges (TEST-NET-1, 2, 3)
+		"192.0.2.0/24",
+		"198.51.100.0/24",
+		"203.0.113.0/24",
+		// RFC 2544 — Benchmarking
+		"198.18.0.0/15",
+		// IPv6 private/reserved
 		"fc00::/7",
 		"fe80::/10",
 		"::1/128",
+		// RFC 3849 — Documentation (IPv6)
+		"2001:db8::/32",
 	} {
 		_, n, _ := net.ParseCIDR(cidr)
 		privateNets = append(privateNets, n)

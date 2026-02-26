@@ -387,10 +387,14 @@ To prevent abuse (e.g., phishing with public IP certs), use `-only-private`:
 anyip -domain anyip.dev -only-private
 ```
 
-This restricts resolution to RFC 1918 / RFC 4193 addresses only:
-- `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
+This restricts resolution to private/reserved addresses only:
+- `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` (RFC 1918)
 - `127.0.0.0/8` (loopback)
-- `fc00::/7` (IPv6 ULA), `fe80::/10` (link-local), `::1` (loopback)
+- `100.64.0.0/10` (RFC 6598 CGNAT, e.g. Tailscale)
+- `169.254.0.0/16` (link-local)
+- `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24` (RFC 5737 documentation)
+- `198.18.0.0/15` (RFC 2544 benchmarking)
+- `fc00::/7` (IPv6 ULA), `fe80::/10` (link-local), `::1` (loopback), `2001:db8::/32` (RFC 3849 documentation)
 
 ## Tech Stack
 
