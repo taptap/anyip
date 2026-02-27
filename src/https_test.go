@@ -14,6 +14,7 @@ import (
 func setupHTTPSTest() *DNSHandler {
 	cfg = Config{
 		Domain:   "test.dev.",
+		DOHPath:  "/dns-query",
 		TTL:      300,
 		NS:       []string{"ns1.test.dev."},
 		DomainIP: net.ParseIP("1.2.3.4"),
@@ -53,8 +54,178 @@ func TestHandleRoot_InfoPage(t *testing.T) {
 	if !strings.HasPrefix(ct, "text/plain") {
 		t.Errorf("Content-Type = %s, want text/plain", ct)
 	}
-	if !strings.Contains(w.Body.String(), "AnyIP") {
+	body := w.Body.String()
+	if !strings.Contains(body, "AnyIP") {
 		t.Error("body does not contain 'AnyIP'")
+	}
+	if !strings.Contains(body, "Domain: test.dev") {
+		t.Error("body does not show configured domain")
+	}
+	if !strings.Contains(body, "DNS Resolution") {
+		t.Error("body does not contain DNS Resolution section")
+	}
+	if !strings.Contains(body, "DNS over HTTPS") {
+		t.Error("body does not contain DNS over HTTPS section")
+	}
+	// No ACME configured -> no certificate sections
+	if strings.Contains(body, "Wildcard Certificate") {
+		t.Error("body should not contain Wildcard Certificate when ACME is not configured")
+	}
+	if strings.Contains(body, "Subdomain Certificate") {
+		t.Error("body should not contain Subdomain Certificates when ACME is not configured")
+	}
+}
+
+func TestHandleRoot_WithACME(t *testing.T) {
+	setupHTTPSTest()
+	cfg.ACMEEmail = "test@example.com"
+	cfg.CertSubs = map[string]bool{"127-0-0-1": true}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "127-0-0-1.test.dev"
+	w := httptest.NewRecorder()
+	handleRoot(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Wildcard Certificate") {
+		t.Error("body should contain Wildcard Certificate when ACME is configured")
+	}
+	if !strings.Contains(body, "/cert/fullchain.pem") {
+		t.Error("body should list cert endpoints")
+	}
+	if !strings.Contains(body, "Subdomain Certificate") {
+		t.Error("body should contain Subdomain Certificates when cert-subs is configured")
+	}
+	if !strings.Contains(body, "Allowed labels: 127-0-0-1") {
+		t.Error("body should list allowed cert-subs labels")
+	}
+}
+
+func TestHandleRoot_ACMEWithoutCertSubs(t *testing.T) {
+	setupHTTPSTest()
+	cfg.ACMEEmail = "test@example.com"
+	cfg.CertSubs = map[string]bool{}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "127-0-0-1.test.dev"
+	w := httptest.NewRecorder()
+	handleRoot(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Wildcard Certificate") {
+		t.Error("body should contain Wildcard Certificate when ACME is configured")
+	}
+	if strings.Contains(body, "Subdomain Certificate") {
+		t.Error("body should not contain Subdomain Certificates when cert-subs is empty")
+	}
+}
+
+func TestHandleRoot_OnlyPrivate(t *testing.T) {
+	setupHTTPSTest()
+	cfg.OnlyPrivate = true
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "127-0-0-1.test.dev"
+	w := httptest.NewRecorder()
+	handleRoot(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "only resolves private") {
+		t.Error("body should mention private IP restriction when OnlyPrivate is enabled")
+	}
+	if !strings.Contains(body, "RFC 1918") {
+		t.Error("body should list allowed private IP ranges")
+	}
+}
+
+func TestHandleRoot_OnlyPrivateDisabled(t *testing.T) {
+	setupHTTPSTest()
+	cfg.OnlyPrivate = false
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "127-0-0-1.test.dev"
+	w := httptest.NewRecorder()
+	handleRoot(w, req)
+
+	body := w.Body.String()
+	if strings.Contains(body, "only resolves private") {
+		t.Error("body should not mention private IP restriction when OnlyPrivate is disabled")
+	}
+}
+
+func TestHandleRoot_CNAMERecords(t *testing.T) {
+	setupHTTPSTest()
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "127-0-0-1.test.dev"
+	w := httptest.NewRecorder()
+	handleRoot(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Static CNAME") {
+		t.Error("body should contain CNAME section when CNAME records are configured")
+	}
+	if !strings.Contains(body, "www.test.dev") || !strings.Contains(body, "example.github.io") {
+		t.Error("body should list configured CNAME records")
+	}
+}
+
+func TestHandleRoot_MultipleCNAMEs(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CNAME = map[string]string{
+		"blog": "myblog.netlify.app.",
+		"docs": "example.github.io.",
+		"www":  "taptap.github.io.",
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "127-0-0-1.test.dev"
+	w := httptest.NewRecorder()
+	handleRoot(w, req)
+
+	body := w.Body.String()
+	// Entries should be sorted alphabetically
+	blogIdx := strings.Index(body, "blog.test.dev")
+	docsIdx := strings.Index(body, "docs.test.dev")
+	wwwIdx := strings.Index(body, "www.test.dev")
+	if blogIdx < 0 || docsIdx < 0 || wwwIdx < 0 {
+		t.Fatal("body should list all configured CNAME records")
+	}
+	if !(blogIdx < docsIdx && docsIdx < wwwIdx) {
+		t.Error("CNAME entries should be sorted alphabetically")
+	}
+}
+
+func TestHandleRoot_NoCNAME(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CNAME = map[string]string{}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "127-0-0-1.test.dev"
+	w := httptest.NewRecorder()
+	handleRoot(w, req)
+
+	body := w.Body.String()
+	if strings.Contains(body, "Static CNAME") {
+		t.Error("body should not contain CNAME section when no CNAME records are configured")
+	}
+}
+
+func TestHandleRoot_CustomDOHPath(t *testing.T) {
+	setupHTTPSTest()
+	cfg.DOHPath = "/custom-dns"
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "127-0-0-1.test.dev"
+	w := httptest.NewRecorder()
+	handleRoot(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "/custom-dns") {
+		t.Error("body should use configured DOH path")
+	}
+	if strings.Contains(body, "/dns-query") {
+		t.Error("body should not contain default DOH path when custom path is configured")
 	}
 }
 
