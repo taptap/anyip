@@ -89,14 +89,31 @@ func (m *CertManager) RsaCertFiles() (cert, key string) {
 
 // SubdomainEcdsaCertFiles returns paths to a subdomain ECDSA certificate and key.
 func (m *CertManager) SubdomainEcdsaCertFiles(label string) (cert, key string) {
-	dir := filepath.Join(cfg.CertDir, "sub", label)
+	dir, err := subCertDir(label)
+	if err != nil {
+		return "", ""
+	}
 	return filepath.Join(dir, "fullchain.pem"), filepath.Join(dir, "privkey.pem")
 }
 
 // SubdomainRsaCertFiles returns paths to a subdomain RSA certificate and key.
 func (m *CertManager) SubdomainRsaCertFiles(label string) (cert, key string) {
-	dir := filepath.Join(cfg.CertDir, "sub", label)
+	dir, err := subCertDir(label)
+	if err != nil {
+		return "", ""
+	}
 	return filepath.Join(dir, "fullchain-rsa.pem"), filepath.Join(dir, "privkey-rsa.pem")
+}
+
+// subCertDir returns the resolved directory for a subdomain label,
+// ensuring it stays within cfg.CertDir/sub/ to prevent path traversal.
+func subCertDir(label string) (string, error) {
+	subBase := filepath.Clean(cfg.CertDir) + string(filepath.Separator) + "sub"
+	dir := filepath.Clean(filepath.Join(subBase, label))
+	if !strings.HasPrefix(dir, subBase+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid label: path escapes cert directory")
+	}
+	return dir, nil
 }
 
 // HasEcdsaCertificate checks if certificate files exist.
@@ -168,7 +185,7 @@ func (m *CertManager) AutoRenew() {
 		}
 
 		// Root RSA cert
-		if m.NeedsRsaRenewal() {
+		if cfg.CertRSACompat && m.NeedsRsaRenewal() {
 			log.Printf("[acme] RSA certificate needs renewal, requesting...")
 			if err := m.requestRsaCertificate(); err != nil {
 				log.Printf("[acme] RSA renewal failed: %v (will retry)", err)
@@ -184,11 +201,13 @@ func (m *CertManager) AutoRenew() {
 					log.Printf("[acme] subdomain %s renewal failed: %v (will retry)", label, err)
 				}
 			}
-			rsaCertFile, _ := m.SubdomainRsaCertFiles(label)
-			if needsRenewal(rsaCertFile) {
-				log.Printf("[acme] subdomain RSA cert %s needs renewal, requesting...", label)
-				if err := m.requestSubdomainRsaCert(label); err != nil {
-					log.Printf("[acme] subdomain %s RSA renewal failed: %v (will retry)", label, err)
+			if cfg.CertRSACompat {
+				rsaCertFile, _ := m.SubdomainRsaCertFiles(label)
+				if needsRenewal(rsaCertFile) {
+					log.Printf("[acme] subdomain RSA cert %s needs renewal, requesting...", label)
+					if err := m.requestSubdomainRsaCert(label); err != nil {
+						log.Printf("[acme] subdomain %s RSA renewal failed: %v (will retry)", label, err)
+					}
 				}
 			}
 		}
@@ -215,9 +234,15 @@ func (m *CertManager) requestRsaCertificate() error {
 func (m *CertManager) requestSubdomainEcdsaCert(label string) error {
 	domain := strings.TrimSuffix(cfg.Domain, ".")
 	subDomain := label + "." + domain
-	certFile, keyFile := m.SubdomainEcdsaCertFiles(label)
 
-	if err := os.MkdirAll(filepath.Dir(certFile), 0700); err != nil {
+	dir, err := subCertDir(label)
+	if err != nil {
+		return err
+	}
+	certFile := filepath.Join(dir, "fullchain.pem")
+	keyFile := filepath.Join(dir, "privkey.pem")
+
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create cert dir: %w", err)
 	}
 
@@ -230,9 +255,15 @@ func (m *CertManager) requestSubdomainEcdsaCert(label string) error {
 func (m *CertManager) requestSubdomainRsaCert(label string) error {
 	domain := strings.TrimSuffix(cfg.Domain, ".")
 	subDomain := label + "." + domain
-	certFile, keyFile := m.SubdomainRsaCertFiles(label)
 
-	if err := os.MkdirAll(filepath.Dir(certFile), 0700); err != nil {
+	dir, err := subCertDir(label)
+	if err != nil {
+		return err
+	}
+	certFile := filepath.Join(dir, "fullchain-rsa.pem")
+	keyFile := filepath.Join(dir, "privkey-rsa.pem")
+
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create cert dir: %w", err)
 	}
 

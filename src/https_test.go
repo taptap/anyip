@@ -80,6 +80,7 @@ func TestHandleRoot_WithACME(t *testing.T) {
 	setupHTTPSTest()
 	cfg.ACMEEmail = "test@example.com"
 	cfg.CertSubs = map[string]bool{"127-0-0-1": true}
+	cfg.CertRSACompat = false
 
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Host = "127-0-0-1.test.dev"
@@ -98,6 +99,33 @@ func TestHandleRoot_WithACME(t *testing.T) {
 	}
 	if !strings.Contains(body, "Allowed labels: 127-0-0-1") {
 		t.Error("body should list allowed cert-subs labels")
+	}
+	// RSA endpoints should not appear when CertRSACompat is false
+	if strings.Contains(body, "fullchain-rsa.pem") {
+		t.Error("body should not contain RSA endpoints when CertRSACompat is false")
+	}
+}
+
+func TestHandleRoot_WithACMEAndRSA(t *testing.T) {
+	setupHTTPSTest()
+	cfg.ACMEEmail = "test@example.com"
+	cfg.CertSubs = map[string]bool{"127-0-0-1": true}
+	cfg.CertRSACompat = true
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "127-0-0-1.test.dev"
+	w := httptest.NewRecorder()
+	handleRoot(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "RSA endpoints:") {
+		t.Error("body should contain RSA endpoints section when CertRSACompat is true")
+	}
+	if !strings.Contains(body, "/cert/fullchain-rsa.pem") {
+		t.Error("body should list RSA cert endpoints when CertRSACompat is true")
+	}
+	if !strings.Contains(body, "fullchain-rsa.pem") {
+		t.Error("body should list RSA subdomain cert endpoints when CertRSACompat is true")
 	}
 }
 
@@ -442,6 +470,68 @@ func TestBuildDOHJSON(t *testing.T) {
 		}
 		if a.Data != tt.wantData {
 			t.Errorf("answer[%d] data = %s, want %s", tt.idx, a.Data, tt.wantData)
+		}
+	}
+}
+
+func TestSubCertHandler_InvalidIPLabel(t *testing.T) {
+	setupHTTPSTest()
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	req := httptest.NewRequest("GET", "/cert/sub/not-an-ip/info", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestSubCertHandler_RsaEndpoints_DisabledWhenCertRSAFalse(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertRSACompat = false
+	cfg.CertSubs = map[string]bool{"127-0-0-1": true}
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	endpoints := []string{
+		"/cert/sub/127-0-0-1/fullchain-rsa.pem",
+		"/cert/sub/127-0-0-1/privkey-rsa.pem",
+		"/cert/sub/127-0-0-1/info-rsa",
+	}
+	for _, ep := range endpoints {
+		req := httptest.NewRequest("GET", ep, nil)
+		w := httptest.NewRecorder()
+		h(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s: status = %d, want %d", ep, w.Code, http.StatusNotFound)
+		}
+	}
+}
+
+func TestSubCertHandler_RsaEndpoints_NotFoundWhenCertRSATrue(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertRSACompat = true
+	cfg.CertSubs = map[string]bool{"127-0-0-1": true}
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	// RSA endpoints should return 404 when cert not issued (not disabled)
+	endpoints := []string{
+		"/cert/sub/127-0-0-1/fullchain-rsa.pem",
+		"/cert/sub/127-0-0-1/privkey-rsa.pem",
+		"/cert/sub/127-0-0-1/info-rsa",
+	}
+	for _, ep := range endpoints {
+		req := httptest.NewRequest("GET", ep, nil)
+		w := httptest.NewRecorder()
+		h(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s: status = %d, want %d (cert not issued)", ep, w.Code, http.StatusNotFound)
 		}
 	}
 }

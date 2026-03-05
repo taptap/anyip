@@ -77,13 +77,13 @@ curl -o privkey.pem   https://anyip.dev/cert/privkey.pem
 Then use it in your framework:
 
 ```bash
-# Node.js
-node server.js --cert fullchain.pem --key privkey.pem
+# Node.js / Vite / Docusaurus (use RSA — webpack requires RSA keys)
+HTTPS=true SSL_CRT_FILE=fullchain.pem SSL_KEY_FILE=privkey.pem yarn start
 
 # Vite
 vite --https --host \
-  --ssl-cert <(curl -s https://anyip.dev/cert/fullchain.pem) \
-  --ssl-key <(curl -s https://anyip.dev/cert/privkey.pem)
+  --ssl-cert fullchain.pem \
+  --ssl-key  privkey.pem
 
 # Go
 http.ListenAndServeTLS(":443", "fullchain.pem", "privkey.pem", handler)
@@ -97,15 +97,19 @@ This cert covers `*.anyip.dev` — any single-level subdomain like `myapp-192-16
 
 ### Subdomain Certificate
 
-For nested subdomains like `user1.127-0-0-1.anyip.dev` (useful for per-user preview domains), request a per-IP wildcard cert:
+For nested subdomains like `user1.127-0-0-1.anyip.dev` (useful for per-user preview domains), request a per-IP wildcard cert. ECDSA is always issued; RSA is also issued when `-cert-rsa-compat` is enabled:
 
 ```bash
 # Request cert issuance (first time takes ~10-30s)
 curl -X POST https://anyip.dev/cert/sub/127-0-0-1
 
-# Download
+# Download ECDSA (default)
 curl -o fullchain.pem https://anyip.dev/cert/sub/127-0-0-1/fullchain.pem
 curl -o privkey.pem   https://anyip.dev/cert/sub/127-0-0-1/privkey.pem
+
+# Download RSA (for Node.js/webpack)
+curl -o fullchain.pem https://anyip.dev/cert/sub/127-0-0-1/fullchain-rsa.pem
+curl -o privkey.pem   https://anyip.dev/cert/sub/127-0-0-1/privkey-rsa.pem
 ```
 
 Now all `*.127-0-0-1.anyip.dev` hostnames have valid HTTPS. See [Wildcard Certificate Coverage](#wildcard-certificate-coverage) for details.
@@ -178,7 +182,8 @@ For single-label subdomains, the root wildcard cert (`*.anyip.dev`) works. For n
 - **Embedded IP resolution** — `<anything>-<ip>.<domain>` → IP address
 - **Nested subdomains** — `<name>.<ip>.<domain>` also resolves, for per-user preview domains
 - **IPv4 and IPv6** — full dual-stack support
-- **Automatic TLS certificates** — Let's Encrypt wildcard via DNS-01, auto-renewal
+- **Automatic TLS certificates** — Let's Encrypt wildcard via DNS-01, auto-renewal; ECDSA by default
+- **RSA certificate support** — opt-in (`-cert-rsa-compat`) for Node.js/webpack dev server compatibility
 - **Subdomain certificates** — on-demand `*.<ip>.<domain>` certs for nested subdomain HTTPS
 - **Certificate distribution** — download endpoint for dev teams
 - **DNS over HTTPS (DoH)** — encrypted DNS via `GET` and `POST` (RFC 8484)
@@ -254,6 +259,7 @@ On first run, AnyIP will:
 | `-cert-dir` | `ANYIP_CERT_DIR` | `./certs` | Certificate storage directory |
 | `-ttl` | `ANYIP_TTL` | `259200` | DNS response TTL in seconds (72h) |
 | `-only-private` | `ANYIP_ONLY_PRIVATE` | `false` | Only resolve private/reserved IPs |
+| `-cert-rsa-compat` | `ANYIP_CERT_RSA_COMPAT` | `false` | Also issue RSA certificates alongside ECDSA (for Node.js/webpack compatibility) |
 | `-cert-subs` | `ANYIP_CERT_SUBS` | | Allowed IP labels for subdomain certs (comma-separated) |
 | `-cname` | `ANYIP_CNAME` | | Static CNAME records (`label=target,...`, e.g. `www=taptap.github.io`) |
 | `-verbose` | `ANYIP_VERBOSE` | `false` | Verbose logging |
@@ -264,33 +270,45 @@ On first run, AnyIP will:
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /cert/fullchain.pem` | Full certificate chain |
-| `GET /cert/privkey.pem` | Private key |
-| `GET /cert/info` | Certificate metadata (JSON) |
+| `GET /cert/fullchain.pem` | ECDSA certificate chain |
+| `GET /cert/privkey.pem` | ECDSA private key |
+| `GET /cert/info` | ECDSA certificate metadata (JSON) |
+| `GET /cert/fullchain-rsa.pem` | RSA certificate chain *(requires `-cert-rsa-compat`)* |
+| `GET /cert/privkey-rsa.pem` | RSA private key *(requires `-cert-rsa-compat`)* |
+| `GET /cert/info-rsa` | RSA certificate metadata (JSON) *(requires `-cert-rsa-compat`)* |
+
+RSA certificates are opt-in (`-cert-rsa-compat` / `ANYIP_CERT_RSA_COMPAT=true`). Use them when your tooling requires RSA — [Docusaurus](https://github.com/facebook/docusaurus/blob/main/packages/docusaurus/src/webpack/utils/getHttpsConfig.ts) validates certificates via [`crypto.publicEncrypt`](https://nodejs.org/api/crypto.html#cryptopublicencryptkey-buffer) which only supports RSA keys, causing `ERR_OSSL_EVP_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE` with ECDSA certs.
 
 ### Subdomain Certificates
 
-On-demand wildcard certificates for nested subdomains (e.g., `*.127-0-0-1.anyip.dev`).
+On-demand wildcard certificates for nested subdomains (e.g., `*.127-0-0-1.anyip.dev`). A `POST` always issues an ECDSA cert; RSA is also issued when `-cert-rsa-compat` is enabled.
 
 | Endpoint | Description |
 |----------|-------------|
-| `POST /cert/sub/{label}` | Request cert issuance (~10-30s, returns cert info) |
-| `GET /cert/sub/{label}/fullchain.pem` | Full certificate chain |
-| `GET /cert/sub/{label}/privkey.pem` | Private key |
-| `GET /cert/sub/{label}/info` | Certificate metadata (JSON) |
+| `POST /cert/sub/{label}` | Issue cert(s) (~10-30s, returns cert info) |
+| `GET /cert/sub/{label}/fullchain.pem` | ECDSA certificate chain |
+| `GET /cert/sub/{label}/privkey.pem` | ECDSA private key |
+| `GET /cert/sub/{label}/info` | ECDSA certificate metadata (JSON) |
+| `GET /cert/sub/{label}/fullchain-rsa.pem` | RSA certificate chain *(requires `-cert-rsa-compat`)* |
+| `GET /cert/sub/{label}/privkey-rsa.pem` | RSA private key *(requires `-cert-rsa-compat`)* |
+| `GET /cert/sub/{label}/info-rsa` | RSA certificate metadata (JSON) *(requires `-cert-rsa-compat`)* |
 
 The `{label}` must be a valid IP pattern (e.g., `127-0-0-1`) **and** listed in `ANYIP_CERT_SUBS`. Requests for unlisted labels return 403.
 
 **Example: request and use a subdomain cert**
 
 ```bash
-# Request cert (first time takes ~10-30s for ACME)
+# Request cert (first time takes ~10-30s for ACME; issues both ECDSA and RSA)
 curl -X POST https://anyip.dev/cert/sub/127-0-0-1
 # {"domains":["127-0-0-1.anyip.dev","*.127-0-0-1.anyip.dev"],...}
 
-# Download cert + key
+# Download ECDSA cert + key (Go, Nginx, etc.)
 curl -o cert.pem https://anyip.dev/cert/sub/127-0-0-1/fullchain.pem
 curl -o key.pem  https://anyip.dev/cert/sub/127-0-0-1/privkey.pem
+
+# Download RSA cert + key (Node.js / webpack / Docusaurus)
+curl -o cert.pem https://anyip.dev/cert/sub/127-0-0-1/fullchain-rsa.pem
+curl -o key.pem  https://anyip.dev/cert/sub/127-0-0-1/privkey-rsa.pem
 
 # Use in your dev server — all *.127-0-0-1.anyip.dev names work
 node server.js --cert cert.pem --key key.pem --host user1.127-0-0-1.anyip.dev
