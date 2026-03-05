@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -18,6 +20,13 @@ import (
 	"time"
 
 	"golang.org/x/crypto/acme"
+)
+
+type certKeyType int
+
+const (
+	keyTypeECDSA certKeyType = iota
+	keyTypeRSA
 )
 
 // ChallengeStore holds ACME DNS-01 challenge tokens, keyed by label.
@@ -67,41 +76,81 @@ func NewCertManager(challenges *ChallengeStore) *CertManager {
 	}
 }
 
-// CertFiles returns paths to the current certificate and key.
-func (m *CertManager) CertFiles() (cert, key string) {
+// CertFiles returns paths to the current ECDSA certificate and key.
+func (m *CertManager) EcdsaCertFiles() (cert, key string) {
 	return m.certFile, m.keyFile
 }
 
-// SubdomainCertFiles returns paths to a subdomain certificate and key.
-func (m *CertManager) SubdomainCertFiles(label string) (cert, key string) {
+// RsaCertFiles returns paths to the current RSA certificate and key.
+func (m *CertManager) RsaCertFiles() (cert, key string) {
+	dir := filepath.Dir(m.certFile)
+	return filepath.Join(dir, "fullchain-rsa.pem"), filepath.Join(dir, "privkey-rsa.pem")
+}
+
+// SubdomainEcdsaCertFiles returns paths to a subdomain ECDSA certificate and key.
+func (m *CertManager) SubdomainEcdsaCertFiles(label string) (cert, key string) {
 	dir := filepath.Join(cfg.CertDir, "sub", label)
 	return filepath.Join(dir, "fullchain.pem"), filepath.Join(dir, "privkey.pem")
 }
 
-// HasCertificate checks if certificate files exist.
-func (m *CertManager) HasCertificate() bool {
+// SubdomainRsaCertFiles returns paths to a subdomain RSA certificate and key.
+func (m *CertManager) SubdomainRsaCertFiles(label string) (cert, key string) {
+	dir := filepath.Join(cfg.CertDir, "sub", label)
+	return filepath.Join(dir, "fullchain-rsa.pem"), filepath.Join(dir, "privkey-rsa.pem")
+}
+
+// HasEcdsaCertificate checks if certificate files exist.
+func (m *CertManager) HasEcdsaCertificate() bool {
 	_, err1 := os.Stat(m.certFile)
 	_, err2 := os.Stat(m.keyFile)
 	return err1 == nil && err2 == nil
 }
 
-// NeedsRenewal checks if the certificate expires within 30 days.
-func (m *CertManager) NeedsRenewal() bool {
-	if !m.HasCertificate() {
+// NeedsEcdsaRenewal checks if the certificate expires within 30 days.
+func (m *CertManager) NeedsEcdsaRenewal() bool {
+	if !m.HasEcdsaCertificate() {
 		return true
 	}
 	return needsRenewal(m.certFile)
 }
 
-// EnsureCertificate requests a certificate if needed.
-func (m *CertManager) EnsureCertificate() error {
-	if !m.NeedsRenewal() {
+// HasRsaCertificate checks if RSA certificate files exist.
+func (m *CertManager) HasRsaCertificate() bool {
+	rsaCertFile, rsaKeyFile := m.RsaCertFiles()
+	_, err1 := os.Stat(rsaCertFile)
+	_, err2 := os.Stat(rsaKeyFile)
+	return err1 == nil && err2 == nil
+}
+
+// NeedsRsaRenewal checks if the RSA certificate expires within 30 days.
+func (m *CertManager) NeedsRsaRenewal() bool {
+	if !m.HasRsaCertificate() {
+		return true
+	}
+	rsaCertFile, _ := m.RsaCertFiles()
+	return needsRenewal(rsaCertFile)
+}
+
+// EnsureEcdsaCertificate requests a certificate if needed.
+func (m *CertManager) EnsureEcdsaCertificate() error {
+	if !m.NeedsEcdsaRenewal() {
 		log.Printf("[acme] certificate is valid, no renewal needed")
 		return nil
 	}
 
 	log.Printf("[acme] requesting wildcard certificate...")
-	return m.requestCertificate()
+	return m.requestEcdsaCertificate()
+}
+
+// EnsureRsaCertificate requests an RSA certificate if needed.
+func (m *CertManager) EnsureRsaCertificate() error {
+	if !m.NeedsRsaRenewal() {
+		log.Printf("[acme] RSA certificate is valid, no renewal needed")
+		return nil
+	}
+
+	log.Printf("[acme] requesting RSA wildcard certificate...")
+	return m.requestRsaCertificate()
 }
 
 // AutoRenew checks certificate expiry periodically and renews.
@@ -110,39 +159,63 @@ func (m *CertManager) AutoRenew() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		// Root cert
-		if m.NeedsRenewal() {
+		// Root ECDSA cert
+		if m.NeedsEcdsaRenewal() {
 			log.Printf("[acme] certificate needs renewal, requesting...")
-			if err := m.requestCertificate(); err != nil {
+			if err := m.requestEcdsaCertificate(); err != nil {
 				log.Printf("[acme] renewal failed: %v (will retry)", err)
+			}
+		}
+
+		// Root RSA cert
+		if m.NeedsRsaRenewal() {
+			log.Printf("[acme] RSA certificate needs renewal, requesting...")
+			if err := m.requestRsaCertificate(); err != nil {
+				log.Printf("[acme] RSA renewal failed: %v (will retry)", err)
 			}
 		}
 
 		// Subdomain certs
 		for _, label := range m.listSubdomainLabels() {
-			certFile, _ := m.SubdomainCertFiles(label)
+			certFile, _ := m.SubdomainEcdsaCertFiles(label)
 			if needsRenewal(certFile) {
 				log.Printf("[acme] subdomain cert %s needs renewal, requesting...", label)
-				if err := m.requestSubdomainCert(label); err != nil {
+				if err := m.requestSubdomainEcdsaCert(label); err != nil {
 					log.Printf("[acme] subdomain %s renewal failed: %v (will retry)", label, err)
+				}
+			}
+			rsaCertFile, _ := m.SubdomainRsaCertFiles(label)
+			if needsRenewal(rsaCertFile) {
+				log.Printf("[acme] subdomain RSA cert %s needs renewal, requesting...", label)
+				if err := m.requestSubdomainRsaCert(label); err != nil {
+					log.Printf("[acme] subdomain %s RSA renewal failed: %v (will retry)", label, err)
 				}
 			}
 		}
 	}
 }
 
-func (m *CertManager) requestCertificate() error {
+func (m *CertManager) requestEcdsaCertificate() error {
 	domain := strings.TrimSuffix(cfg.Domain, ".")
 	return m.issueCertificate(
 		[]string{domain, "*." + domain},
-		m.certFile, m.keyFile, "",
+		m.certFile, m.keyFile, "", keyTypeECDSA,
 	)
 }
 
-func (m *CertManager) requestSubdomainCert(label string) error {
+func (m *CertManager) requestRsaCertificate() error {
+	domain := strings.TrimSuffix(cfg.Domain, ".")
+	certFile, keyFile := m.RsaCertFiles()
+	return m.issueCertificate(
+		[]string{domain, "*." + domain},
+		certFile, keyFile, "", keyTypeRSA,
+	)
+}
+
+func (m *CertManager) requestSubdomainEcdsaCert(label string) error {
 	domain := strings.TrimSuffix(cfg.Domain, ".")
 	subDomain := label + "." + domain
-	certFile, keyFile := m.SubdomainCertFiles(label)
+	certFile, keyFile := m.SubdomainEcdsaCertFiles(label)
 
 	if err := os.MkdirAll(filepath.Dir(certFile), 0700); err != nil {
 		return fmt.Errorf("create cert dir: %w", err)
@@ -150,13 +223,28 @@ func (m *CertManager) requestSubdomainCert(label string) error {
 
 	return m.issueCertificate(
 		[]string{subDomain, "*." + subDomain},
-		certFile, keyFile, label,
+		certFile, keyFile, label, keyTypeECDSA,
 	)
 }
 
-// RequestSubdomainCert requests a wildcard certificate for *.{label}.{domain}.
+func (m *CertManager) requestSubdomainRsaCert(label string) error {
+	domain := strings.TrimSuffix(cfg.Domain, ".")
+	subDomain := label + "." + domain
+	certFile, keyFile := m.SubdomainRsaCertFiles(label)
+
+	if err := os.MkdirAll(filepath.Dir(certFile), 0700); err != nil {
+		return fmt.Errorf("create cert dir: %w", err)
+	}
+
+	return m.issueCertificate(
+		[]string{subDomain, "*." + subDomain},
+		certFile, keyFile, label, keyTypeRSA,
+	)
+}
+
+// RequestSubdomainEcdsaCert requests a wildcard ECDSA certificate for *.{label}.{domain}.
 // The label must be a valid IP pattern (e.g., "127-0-0-1").
-func (m *CertManager) RequestSubdomainCert(label string) error {
+func (m *CertManager) RequestSubdomainEcdsaCert(label string) error {
 	if extractIP(label) == nil {
 		return fmt.Errorf("invalid IP label: %s", label)
 	}
@@ -165,17 +253,38 @@ func (m *CertManager) RequestSubdomainCert(label string) error {
 		return fmt.Errorf("label not allowed: %s", label)
 	}
 
-	certFile, _ := m.SubdomainCertFiles(label)
+	certFile, _ := m.SubdomainEcdsaCertFiles(label)
 	if !needsRenewal(certFile) {
 		log.Printf("[acme] subdomain cert %s is valid, no renewal needed", label)
 		return nil
 	}
 
 	log.Printf("[acme] requesting wildcard certificate for *.%s.%s...", label, strings.TrimSuffix(cfg.Domain, "."))
-	return m.requestSubdomainCert(label)
+	return m.requestSubdomainEcdsaCert(label)
 }
 
-func (m *CertManager) issueCertificate(domains []string, certFile, keyFile, challengeLabel string) error {
+// RequestSubdomainRsaCert requests a wildcard RSA certificate for *.{label}.{domain}.
+// The label must be a valid IP pattern (e.g., "127-0-0-1").
+func (m *CertManager) RequestSubdomainRsaCert(label string) error {
+	if extractIP(label) == nil {
+		return fmt.Errorf("invalid IP label: %s", label)
+	}
+
+	if !cfg.CertSubs[label] {
+		return fmt.Errorf("label not allowed: %s", label)
+	}
+
+	certFile, _ := m.SubdomainRsaCertFiles(label)
+	if !needsRenewal(certFile) {
+		log.Printf("[acme] subdomain RSA cert %s is valid, no renewal needed", label)
+		return nil
+	}
+
+	log.Printf("[acme] requesting RSA wildcard certificate for *.%s.%s...", label, strings.TrimSuffix(cfg.Domain, "."))
+	return m.requestSubdomainRsaCert(label)
+}
+
+func (m *CertManager) issueCertificate(domains []string, certFile, keyFile, challengeLabel string, kt certKeyType) error {
 	m.acmeMu.Lock()
 	defer m.acmeMu.Unlock()
 
@@ -260,9 +369,27 @@ func (m *CertManager) issueCertificate(domains []string, certFile, keyFile, chal
 	}
 
 	// Generate certificate key
-	certKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return fmt.Errorf("generate cert key: %w", err)
+	var certKey crypto.Signer
+	var keyPEM []byte
+	if kt == keyTypeRSA {
+		rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return fmt.Errorf("generate RSA cert key: %w", err)
+		}
+		keyDER := x509.MarshalPKCS1PrivateKey(rsaKey)
+		keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyDER})
+		certKey = rsaKey
+	} else {
+		ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			return fmt.Errorf("generate cert key: %w", err)
+		}
+		keyDER, err := x509.MarshalECPrivateKey(ecKey)
+		if err != nil {
+			return fmt.Errorf("marshal key: %w", err)
+		}
+		keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+		certKey = ecKey
 	}
 
 	// Create CSR
@@ -289,11 +416,6 @@ func (m *CertManager) issueCertificate(domains []string, certFile, keyFile, chal
 	}
 
 	// Write private key
-	keyDER, err := x509.MarshalECPrivateKey(certKey)
-	if err != nil {
-		return fmt.Errorf("marshal key: %w", err)
-	}
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 	if err := os.WriteFile(keyFile, keyPEM, 0600); err != nil {
 		return fmt.Errorf("write key: %w", err)
 	}
@@ -394,28 +516,58 @@ func certInfoFromFile(certFile string) (map[string]any, error) {
 }
 
 // CertInfo returns metadata about the current certificate.
-func (m *CertManager) CertInfo() (map[string]any, error) {
+func (m *CertManager) EcdsaCertInfo() (map[string]any, error) {
 	return certInfoFromFile(m.certFile)
 }
 
 // CertInfoJSON returns certificate metadata as JSON bytes.
-func (m *CertManager) CertInfoJSON() ([]byte, error) {
-	info, err := m.CertInfo()
+func (m *CertManager) EcdsaCertInfoJSON() ([]byte, error) {
+	info, err := m.EcdsaCertInfo()
 	if err != nil {
 		return nil, err
 	}
 	return json.MarshalIndent(info, "", "  ")
 }
 
-// SubdomainCertInfo returns metadata about a subdomain certificate.
-func (m *CertManager) SubdomainCertInfo(label string) (map[string]any, error) {
-	certFile, _ := m.SubdomainCertFiles(label)
+// SubdomainEcdsaCertInfo returns metadata about a subdomain ECDSA certificate.
+func (m *CertManager) SubdomainEcdsaCertInfo(label string) (map[string]any, error) {
+	certFile, _ := m.SubdomainEcdsaCertFiles(label)
 	return certInfoFromFile(certFile)
 }
 
-// SubdomainCertInfoJSON returns subdomain certificate metadata as JSON bytes.
-func (m *CertManager) SubdomainCertInfoJSON(label string) ([]byte, error) {
-	info, err := m.SubdomainCertInfo(label)
+// SubdomainEcdsaCertInfoJSON returns subdomain ECDSA certificate metadata as JSON bytes.
+func (m *CertManager) SubdomainEcdsaCertInfoJSON(label string) ([]byte, error) {
+	info, err := m.SubdomainEcdsaCertInfo(label)
+	if err != nil {
+		return nil, err
+	}
+	return json.MarshalIndent(info, "", "  ")
+}
+
+// RsaCertInfo returns metadata about the current RSA certificate.
+func (m *CertManager) RsaCertInfo() (map[string]any, error) {
+	certFile, _ := m.RsaCertFiles()
+	return certInfoFromFile(certFile)
+}
+
+// RsaCertInfoJSON returns RSA certificate metadata as JSON bytes.
+func (m *CertManager) RsaCertInfoJSON() ([]byte, error) {
+	info, err := m.RsaCertInfo()
+	if err != nil {
+		return nil, err
+	}
+	return json.MarshalIndent(info, "", "  ")
+}
+
+// SubdomainRsaCertInfo returns metadata about a subdomain RSA certificate.
+func (m *CertManager) SubdomainRsaCertInfo(label string) (map[string]any, error) {
+	certFile, _ := m.SubdomainRsaCertFiles(label)
+	return certInfoFromFile(certFile)
+}
+
+// SubdomainRsaCertInfoJSON returns subdomain RSA certificate metadata as JSON bytes.
+func (m *CertManager) SubdomainRsaCertInfoJSON(label string) ([]byte, error) {
+	info, err := m.SubdomainRsaCertInfo(label)
 	if err != nil {
 		return nil, err
 	}

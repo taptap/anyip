@@ -131,8 +131,11 @@ func main() {
 	// ACME + HTTPS
 	certMgr := NewCertManager(challenges)
 	if cfg.ACMEEmail != "" {
-		if err := certMgr.EnsureCertificate(); err != nil {
+		if err := certMgr.EnsureEcdsaCertificate(); err != nil {
 			log.Printf("[acme] initial certificate request failed: %v (will retry)", err)
+		}
+		if err := certMgr.EnsureRsaCertificate(); err != nil {
+			log.Printf("[acme] initial RSA certificate request failed: %v (will retry)", err)
 		}
 		go certMgr.AutoRenew()
 	}
