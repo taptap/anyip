@@ -27,10 +27,11 @@ type Config struct {
 	NS          []string
 	DomainIP    net.IP
 	TTL         uint32
-	OnlyPrivate bool
-	Verbose     bool
-	CertSubs    map[string]bool   // allowed IP labels for subdomain certs
-	CNAME       map[string]string // static CNAME records: label → target
+	OnlyPrivate   bool
+	CertRSACompat bool              // also issue RSA certificates (for Node.js/webpack compatibility)
+	Verbose       bool
+	CertSubs      map[string]bool   // allowed IP labels for subdomain certs
+	CNAME         map[string]string // static CNAME records: label → target
 }
 
 func main() {
@@ -50,6 +51,7 @@ func main() {
 	flag.StringVar(&cfg.CertDir, "cert-dir", envOr("ANYIP_CERT_DIR", "./certs"), "Certificate storage directory")
 	flag.UintVar(&ttlVal, "ttl", envOrUint("ANYIP_TTL", 259200), "DNS response TTL in seconds (72h)")
 	flag.BoolVar(&cfg.OnlyPrivate, "only-private", envOr("ANYIP_ONLY_PRIVATE", "false") == "true", "Only resolve private IPs")
+	flag.BoolVar(&cfg.CertRSACompat, "cert-rsa-compat", envOr("ANYIP_CERT_RSA_COMPAT", "false") == "true", "Also issue RSA certificates alongside ECDSA (for Node.js/webpack compatibility)")
 	flag.StringVar(&certSubsStr, "cert-subs", envOr("ANYIP_CERT_SUBS", ""), "Allowed IP labels for subdomain certs (comma-separated, e.g. 127-0-0-1)")
 	flag.StringVar(&cnameStr, "cname", envOr("ANYIP_CNAME", ""), "Static CNAME records (comma-separated label=target, e.g. www=taptap.github.io)")
 	flag.BoolVar(&cfg.Verbose, "verbose", envOr("ANYIP_VERBOSE", "false") == "true", "Verbose logging")
@@ -131,8 +133,13 @@ func main() {
 	// ACME + HTTPS
 	certMgr := NewCertManager(challenges)
 	if cfg.ACMEEmail != "" {
-		if err := certMgr.EnsureCertificate(); err != nil {
+		if err := certMgr.EnsureEcdsaCertificate(); err != nil {
 			log.Printf("[acme] initial certificate request failed: %v (will retry)", err)
+		}
+		if cfg.CertRSACompat {
+			if err := certMgr.EnsureRsaCertificate(); err != nil {
+				log.Printf("[acme] initial RSA certificate request failed: %v (will retry)", err)
+			}
 		}
 		go certMgr.AutoRenew()
 	}

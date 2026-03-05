@@ -24,10 +24,18 @@ func StartHTTPS(addr string, dnsHandler *DNSHandler, certMgr *CertManager) {
 	// DoH endpoint
 	mux.HandleFunc(cfg.DOHPath, dohHandler(dnsHandler))
 
-	// Certificate distribution
+	// Certificate distribution (ECDSA)
 	mux.HandleFunc("/cert/fullchain.pem", certFileHandler(certMgr.certFile, "application/x-pem-file"))
 	mux.HandleFunc("/cert/privkey.pem", certFileHandler(certMgr.keyFile, "application/x-pem-file"))
-	mux.HandleFunc("/cert/info", certInfoHandler(certMgr))
+	mux.HandleFunc("/cert/info", ecdsaCertInfoHandler(certMgr))
+
+	// Certificate distribution (RSA) — only when enabled
+	if cfg.CertRSACompat {
+		rsaCertFile, rsaKeyFile := certMgr.RsaCertFiles()
+		mux.HandleFunc("/cert/fullchain-rsa.pem", certFileHandler(rsaCertFile, "application/x-pem-file"))
+		mux.HandleFunc("/cert/privkey-rsa.pem", certFileHandler(rsaKeyFile, "application/x-pem-file"))
+		mux.HandleFunc("/cert/info-rsa", rsaCertInfoHandler(certMgr))
+	}
 
 	// Subdomain certificate distribution
 	mux.HandleFunc("/cert/sub/", subCertHandler(certMgr))
@@ -47,7 +55,7 @@ func StartHTTPS(addr string, dnsHandler *DNSHandler, certMgr *CertManager) {
 				labels := strings.Split(sub, ".")
 				if len(labels) >= 2 {
 					label := strings.Join(labels[1:], ".")
-					cf, kf := certMgr.SubdomainCertFiles(label)
+					cf, kf := certMgr.SubdomainEcdsaCertFiles(label)
 					if cert, err := tls.LoadX509KeyPair(cf, kf); err == nil {
 						return &cert, nil
 					}
@@ -55,7 +63,7 @@ func StartHTTPS(addr string, dnsHandler *DNSHandler, certMgr *CertManager) {
 			}
 
 			// Fall back to root cert
-			certFile, keyFile := certMgr.CertFiles()
+			certFile, keyFile := certMgr.EcdsaCertFiles()
 			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 			if err != nil {
 				return nil, fmt.Errorf("certificate not yet available: %w", err)
@@ -187,11 +195,24 @@ func certFileHandler(path, contentType string) http.HandlerFunc {
 	}
 }
 
-func certInfoHandler(certMgr *CertManager) http.HandlerFunc {
+func ecdsaCertInfoHandler(certMgr *CertManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		data, err := certMgr.CertInfoJSON()
+		data, err := certMgr.EcdsaCertInfoJSON()
 		if err != nil {
 			http.Error(w, `{"error":"certificate not available"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Write(data)
+	}
+}
+
+func rsaCertInfoHandler(certMgr *CertManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, err := certMgr.RsaCertInfoJSON()
+		if err != nil {
+			http.Error(w, `{"error":"RSA certificate not available"}`, http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -231,12 +252,18 @@ func subCertHandler(certMgr *CertManager) http.HandlerFunc {
 				http.Error(w, `{"error":"label not in allowed list"}`, http.StatusForbidden)
 				return
 			}
-			// Request cert issuance
-			if err := certMgr.RequestSubdomainCert(label); err != nil {
+			// Request ECDSA cert issuance (and RSA if enabled)
+			if err := certMgr.RequestSubdomainEcdsaCert(label); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
 				return
 			}
-			data, err := certMgr.SubdomainCertInfoJSON(label)
+			if cfg.CertRSACompat {
+				if err := certMgr.RequestSubdomainRsaCert(label); err != nil {
+					http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+					return
+				}
+			}
+			data, err := certMgr.SubdomainEcdsaCertInfoJSON(label)
 			if err != nil {
 				http.Error(w, `{"error":"cert issued but info unavailable"}`, http.StatusInternalServerError)
 				return
@@ -245,7 +272,7 @@ func subCertHandler(certMgr *CertManager) http.HandlerFunc {
 			w.Write(data)
 
 		case action == "fullchain.pem":
-			certFile, _ := certMgr.SubdomainCertFiles(label)
+			certFile, _ := certMgr.SubdomainEcdsaCertFiles(label)
 			data, err := os.ReadFile(certFile)
 			if err != nil {
 				http.Error(w, "certificate not available", http.StatusNotFound)
@@ -255,7 +282,7 @@ func subCertHandler(certMgr *CertManager) http.HandlerFunc {
 			w.Write(data)
 
 		case action == "privkey.pem":
-			_, keyFile := certMgr.SubdomainCertFiles(label)
+			_, keyFile := certMgr.SubdomainEcdsaCertFiles(label)
 			data, err := os.ReadFile(keyFile)
 			if err != nil {
 				http.Error(w, "key not available", http.StatusNotFound)
@@ -265,9 +292,38 @@ func subCertHandler(certMgr *CertManager) http.HandlerFunc {
 			w.Write(data)
 
 		case action == "info":
-			data, err := certMgr.SubdomainCertInfoJSON(label)
+			data, err := certMgr.SubdomainEcdsaCertInfoJSON(label)
 			if err != nil {
 				http.Error(w, `{"error":"certificate not available"}`, http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(data)
+
+		case action == "fullchain-rsa.pem" && cfg.CertRSACompat:
+			certFile, _ := certMgr.SubdomainRsaCertFiles(label)
+			data, err := os.ReadFile(certFile)
+			if err != nil {
+				http.Error(w, "RSA certificate not available", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/x-pem-file")
+			w.Write(data)
+
+		case action == "privkey-rsa.pem" && cfg.CertRSACompat:
+			_, keyFile := certMgr.SubdomainRsaCertFiles(label)
+			data, err := os.ReadFile(keyFile)
+			if err != nil {
+				http.Error(w, "RSA key not available", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/x-pem-file")
+			w.Write(data)
+
+		case action == "info-rsa" && cfg.CertRSACompat:
+			data, err := certMgr.SubdomainRsaCertInfoJSON(label)
+			if err != nil {
+				http.Error(w, `{"error":"RSA certificate not available"}`, http.StatusNotFound)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -386,12 +442,24 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	acmeEnabled := cfg.ACMEEmail != ""
 	if acmeEnabled {
 		fmt.Fprintf(w, "%s\n\n", sectionHeader(fmt.Sprintf("Wildcard Certificate (*.%s)", domain)))
-		fmt.Fprintf(w, "  Auto-provisioned via Let's Encrypt.\n\n")
-		fmt.Fprintf(w, "  Endpoints:\n")
-		fmt.Fprintf(w, "    GET  /cert/fullchain.pem   PEM certificate chain\n")
-		fmt.Fprintf(w, "    GET  /cert/privkey.pem     PEM private key\n")
-		fmt.Fprintf(w, "    GET  /cert/info            JSON metadata (issuer, expiry, SANs)\n")
+		if cfg.CertRSACompat {
+			fmt.Fprintf(w, "  Auto-provisioned via Let's Encrypt. Both ECDSA and RSA variants available.\n\n")
+			fmt.Fprintf(w, "  ECDSA endpoints:\n")
+		} else {
+			fmt.Fprintf(w, "  Auto-provisioned via Let's Encrypt.\n\n")
+			fmt.Fprintf(w, "  Endpoints:\n")
+		}
+		fmt.Fprintf(w, "    GET  /cert/fullchain.pem       PEM certificate chain\n")
+		fmt.Fprintf(w, "    GET  /cert/privkey.pem         PEM private key\n")
+		fmt.Fprintf(w, "    GET  /cert/info                JSON metadata (issuer, expiry, SANs)\n")
 		fmt.Fprintf(w, "\n")
+		if cfg.CertRSACompat {
+			fmt.Fprintf(w, "  RSA endpoints:\n")
+			fmt.Fprintf(w, "    GET  /cert/fullchain-rsa.pem   PEM certificate chain\n")
+			fmt.Fprintf(w, "    GET  /cert/privkey-rsa.pem     PEM private key\n")
+			fmt.Fprintf(w, "    GET  /cert/info-rsa            JSON metadata (issuer, expiry, SANs)\n")
+			fmt.Fprintf(w, "\n")
+		}
 		fmt.Fprintf(w, "  Example:\n")
 		fmt.Fprintf(w, "    $ curl https://%s/cert/fullchain.pem -o fullchain.pem\n", domain)
 		fmt.Fprintf(w, "    $ curl https://%s/cert/privkey.pem -o privkey.pem\n", domain)
@@ -411,10 +479,15 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "  On-demand wildcard certs for per-IP subdomains.\n")
 		fmt.Fprintf(w, "  Allowed labels: %s\n\n", strings.Join(labels, ", "))
 		fmt.Fprintf(w, "  Endpoints (replace {label} with an allowed IP label):\n")
-		fmt.Fprintf(w, "    POST /cert/sub/{label}                Issue new certificate (JSON)\n")
-		fmt.Fprintf(w, "    GET  /cert/sub/{label}/fullchain.pem  PEM certificate chain\n")
-		fmt.Fprintf(w, "    GET  /cert/sub/{label}/privkey.pem    PEM private key\n")
-		fmt.Fprintf(w, "    GET  /cert/sub/{label}/info           JSON metadata\n")
+		fmt.Fprintf(w, "    POST /cert/sub/{label}                    Issue new certificate (JSON)\n")
+		fmt.Fprintf(w, "    GET  /cert/sub/{label}/fullchain.pem      ECDSA PEM certificate chain\n")
+		fmt.Fprintf(w, "    GET  /cert/sub/{label}/privkey.pem        ECDSA PEM private key\n")
+		fmt.Fprintf(w, "    GET  /cert/sub/{label}/info               ECDSA JSON metadata\n")
+		if cfg.CertRSACompat {
+			fmt.Fprintf(w, "    GET  /cert/sub/{label}/fullchain-rsa.pem  RSA PEM certificate chain\n")
+			fmt.Fprintf(w, "    GET  /cert/sub/{label}/privkey-rsa.pem    RSA PEM private key\n")
+			fmt.Fprintf(w, "    GET  /cert/sub/{label}/info-rsa           RSA JSON metadata\n")
+		}
 		fmt.Fprintf(w, "\n")
 		fmt.Fprintf(w, "  Example:\n")
 		fmt.Fprintf(w, "    $ curl -X POST https://%s/cert/sub/%s\n", domain, example)
