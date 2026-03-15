@@ -253,7 +253,7 @@ func subCertHandler(certMgr *CertManager) http.HandlerFunc {
 					http.Error(w, `{"error":"label not in allowed list"}`, http.StatusForbidden)
 					return
 				}
-				ip := extractIP(label)
+				ip := parseExactIPLabel(label)
 				if ip == nil || !isPrivateIP(ip) {
 					http.Error(w, `{"error":"label not in allowed list"}`, http.StatusForbidden)
 					return
@@ -478,7 +478,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "%s\n\n", sectionHeader(fmt.Sprintf("Subdomain Certificates (*.{ip}.%s)", domain)))
 		fmt.Fprintf(w, "  On-demand wildcard certs for per-IP subdomains.\n")
 		if cfg.CertSubsAllowPrivate {
-			fmt.Fprintf(w, "  Allowed labels: any private IP\n")
+			fmt.Fprintf(w, "  Allowed labels: any private/reserved IP\n")
 		}
 		if len(cfg.CertSubs) > 0 {
 			labels := make([]string, 0, len(cfg.CertSubs))

@@ -54,7 +54,7 @@ func main() {
 	flag.BoolVar(&cfg.OnlyPrivate, "only-private", envOr("ANYIP_ONLY_PRIVATE", "false") == "true", "Only resolve private IPs")
 	flag.BoolVar(&cfg.CertRSACompat, "cert-rsa-compat", envOr("ANYIP_CERT_RSA_COMPAT", "false") == "true", "Also issue RSA certificates alongside ECDSA (for Node.js/webpack compatibility)")
 	flag.StringVar(&certSubsStr, "cert-subs", envOr("ANYIP_CERT_SUBS", ""), "Allowed IP labels for subdomain certs (comma-separated, e.g. 127-0-0-1)")
-	flag.BoolVar(&cfg.CertSubsAllowPrivate, "cert-subs-allow-private", envOr("ANYIP_CERT_SUBS_ALLOW_PRIVATE", "false") == "true", "Allow any private IP label to request subdomain certs without explicit whitelist")
+	flag.BoolVar(&cfg.CertSubsAllowPrivate, "cert-subs-allow-private", envOr("ANYIP_CERT_SUBS_ALLOW_PRIVATE", "false") == "true", "Allow any private/reserved IP label to request subdomain certs without explicit whitelist")
 	flag.StringVar(&cnameStr, "cname", envOr("ANYIP_CNAME", ""), "Static CNAME records (comma-separated label=target, e.g. www=taptap.github.io)")
 	flag.BoolVar(&cfg.Verbose, "verbose", envOr("ANYIP_VERBOSE", "false") == "true", "Verbose logging")
 	flag.Parse()
@@ -159,7 +159,7 @@ func main() {
 		log.Printf("[anyip] ACME enabled (email: %s, staging: %v)", cfg.ACMEEmail, cfg.ACMEStaging)
 	}
 	if cfg.CertSubsAllowPrivate {
-		log.Printf("[anyip] subdomain certs allowed for all private IP labels")
+		log.Printf("[anyip] subdomain certs allowed for all private/reserved IP labels")
 	}
 	if len(cfg.CertSubs) > 0 {
 		labels := make([]string, 0, len(cfg.CertSubs))

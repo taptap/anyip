@@ -120,6 +120,53 @@ func TestIsPrivateIP(t *testing.T) {
 	}
 }
 
+func TestParseExactIPLabel(t *testing.T) {
+	valid := []struct {
+		input string
+		want  string
+	}{
+		{"192-168-1-50", "192.168.1.50"},
+		{"127-0-0-1", "127.0.0.1"},
+		{"10-0-0-1", "10.0.0.1"},
+		{"2001-db8--1", "2001:db8::1"},
+		{"fe80--1", "fe80::1"},
+		{"--1", "::1"},
+	}
+	for _, tt := range valid {
+		t.Run("valid/"+tt.input, func(t *testing.T) {
+			ip := parseExactIPLabel(tt.input)
+			if ip == nil {
+				t.Fatalf("parseExactIPLabel(%q) = nil, want %s", tt.input, tt.want)
+			}
+			want := net.ParseIP(tt.want)
+			if !ip.Equal(want) {
+				t.Errorf("parseExactIPLabel(%q) = %s, want %s", tt.input, ip, want)
+			}
+		})
+	}
+
+	invalid := []string{
+		"myapp-192-168-1-50",      // prefix not allowed
+		"api-10-0-0-1",            // prefix not allowed
+		"my-cool-app-172-16-0-1",  // prefix not allowed
+		"",
+		"hello",
+		"not-an-ip",
+	}
+	for _, tt := range invalid {
+		name := tt
+		if name == "" {
+			name = "empty"
+		}
+		t.Run("invalid/"+name, func(t *testing.T) {
+			ip := parseExactIPLabel(tt)
+			if ip != nil {
+				t.Errorf("parseExactIPLabel(%q) = %s, want nil", tt, ip)
+			}
+		})
+	}
+}
+
 func BenchmarkExtractIPv4Simple(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		extractIP("127-0-0-1")

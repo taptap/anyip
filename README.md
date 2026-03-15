@@ -261,7 +261,7 @@ On first run, AnyIP will:
 | `-only-private` | `ANYIP_ONLY_PRIVATE` | `false` | Only resolve private/reserved IPs |
 | `-cert-rsa-compat` | `ANYIP_CERT_RSA_COMPAT` | `false` | Also issue RSA certificates alongside ECDSA (for Node.js/webpack compatibility) |
 | `-cert-subs` | `ANYIP_CERT_SUBS` | | Allowed IP labels for subdomain certs (comma-separated) |
-| `-cert-subs-allow-private` | `ANYIP_CERT_SUBS_ALLOW_PRIVATE` | `false` | Allow any private IP label to request subdomain certs without explicit whitelist |
+| `-cert-subs-allow-private` | `ANYIP_CERT_SUBS_ALLOW_PRIVATE` | `false` | Allow any private/reserved IP label to request subdomain certs without explicit whitelist |
 | `-cname` | `ANYIP_CNAME` | | Static CNAME records (`label=target,...`, e.g. `www=taptap.github.io`) |
 | `-verbose` | `ANYIP_VERBOSE` | `false` | Verbose logging |
 
@@ -294,7 +294,7 @@ On-demand wildcard certificates for nested subdomains (e.g., `*.127-0-0-1.anyip.
 | `GET /cert/sub/{label}/privkey-rsa.pem` | RSA private key *(requires `-cert-rsa-compat`)* |
 | `GET /cert/sub/{label}/info-rsa` | RSA certificate metadata (JSON) *(requires `-cert-rsa-compat`)* |
 
-The `{label}` must be a valid IP pattern (e.g., `127-0-0-1`) **and** either listed in `ANYIP_CERT_SUBS` or be a private IP when `ANYIP_CERT_SUBS_ALLOW_PRIVATE=true`. Requests for unlisted/disallowed labels return 403.
+The `{label}` must be a valid IP pattern (e.g., `127-0-0-1`) **and** either listed in `ANYIP_CERT_SUBS` or be a private/reserved IP when `ANYIP_CERT_SUBS_ALLOW_PRIVATE=true`. Requests for unlisted/disallowed labels return 403.
 
 **Example: request and use a subdomain cert**
 
@@ -315,7 +315,7 @@ curl -o key.pem  https://anyip.dev/cert/sub/127-0-0-1/privkey-rsa.pem
 node server.js --cert cert.pem --key key.pem --host user1.127-0-0-1.anyip.dev
 ```
 
-> **Rate limit:** Let's Encrypt allows 50 certificates per registered domain per week. Use `ANYIP_CERT_SUBS` to whitelist only the IP labels you actually need. With `ANYIP_CERT_SUBS_ALLOW_PRIVATE=true`, any private IP label is allowed — suitable for internal deployments with a bounded number of developers.
+> **Rate limit:** Let's Encrypt allows 50 certificates per registered domain per week. Use `ANYIP_CERT_SUBS` to whitelist only the IP labels you actually need. With `ANYIP_CERT_SUBS_ALLOW_PRIVATE=true`, any private/reserved IP label is allowed — suitable for internal deployments with a bounded number of developers.
 
 ### DNS over HTTPS (DoH)
 

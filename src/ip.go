@@ -62,6 +62,26 @@ func tryIPv4(s string) net.IP {
 	return ip.To4()
 }
 
+// parseExactIPLabel parses a label that must be exactly an IP address (no prefix allowed).
+// "192-168-1-50" → 192.168.1.50 ✓   "myapp-192-168-1-50" → nil ✗
+func parseExactIPLabel(label string) net.IP {
+	// Try IPv6 first (same reason as extractIP)
+	if ip := tryIPv6(label); ip != nil {
+		return ip
+	}
+	// IPv4: must be exactly 4 dash-separated parts
+	parts := strings.Split(label, "-")
+	if len(parts) != 4 {
+		return nil
+	}
+	ipStr := strings.Join(parts, ".")
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return nil
+	}
+	return ip.To4()
+}
+
 // tryIPv6 converts dashes to colons, double-dash to ::
 // "2001-db8--1" → "2001:db8::1"
 func tryIPv6(s string) net.IP {

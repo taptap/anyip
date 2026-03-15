@@ -547,6 +547,24 @@ func TestSubCertHandler_AllowPrivate_PublicIPRejected(t *testing.T) {
 	}
 }
 
+func TestSubCertHandler_AllowPrivate_PrefixedLabelRejected(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertSubsAllowPrivate = true
+	cfg.CertSubs = map[string]bool{}
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	// "myapp-192-168-1-100" has a prefix — should be rejected to prevent quota abuse
+	req := httptest.NewRequest("POST", "/cert/sub/myapp-192-168-1-100", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("prefixed IP label should be rejected even with CertSubsAllowPrivate, got %d", w.Code)
+	}
+}
+
 func TestSubCertHandler_AllowPrivate_DefaultDisabled(t *testing.T) {
 	setupHTTPSTest()
 	cfg.CertSubsAllowPrivate = false
@@ -597,8 +615,8 @@ func TestHandleRoot_CertSubsAllowPrivate(t *testing.T) {
 	if !strings.Contains(body, "Subdomain Certificate") {
 		t.Error("body should contain Subdomain Certificates when CertSubsAllowPrivate is true")
 	}
-	if !strings.Contains(body, "any private IP") {
-		t.Error("body should mention 'any private IP' when CertSubsAllowPrivate is true")
+	if !strings.Contains(body, "any private/reserved IP") {
+		t.Error("body should mention 'any private/reserved IP' when CertSubsAllowPrivate is true")
 	}
 }
 
