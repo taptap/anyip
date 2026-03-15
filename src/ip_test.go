@@ -167,6 +167,123 @@ func TestParseExactIPLabel(t *testing.T) {
 	}
 }
 
+func TestCertSubsPolicy_EmptyDisabled(t *testing.T) {
+	p := NewCertSubsPolicy(nil)
+	if p.IsEnabled() {
+		t.Error("empty policy should be disabled")
+	}
+	if p.IsAllowed("127-0-0-1") {
+		t.Error("empty policy should reject everything")
+	}
+}
+
+func TestCertSubsPolicy_PrivateKeyword(t *testing.T) {
+	p := NewCertSubsPolicy([]string{"private"})
+	if !p.IsEnabled() {
+		t.Error("private policy should be enabled")
+	}
+	if !p.IsAllowed("127-0-0-1") {
+		t.Error("private policy should allow loopback")
+	}
+	if !p.IsAllowed("192-168-1-100") {
+		t.Error("private policy should allow private IP")
+	}
+	if !p.IsAllowed("10-0-0-1") {
+		t.Error("private policy should allow RFC1918 IP")
+	}
+	if p.IsAllowed("8-8-8-8") {
+		t.Error("private policy should reject public IP")
+	}
+	if p.IsAllowed("myapp-192-168-1-100") {
+		t.Error("private policy should reject prefixed label")
+	}
+	if p.Description() != "any private/reserved IP" {
+		t.Errorf("description = %q, want 'any private/reserved IP'", p.Description())
+	}
+}
+
+func TestCertSubsPolicy_AllKeyword(t *testing.T) {
+	p := NewCertSubsPolicy([]string{"all"})
+	if !p.IsEnabled() {
+		t.Error("all policy should be enabled")
+	}
+	if !p.IsAllowed("127-0-0-1") {
+		t.Error("all policy should allow loopback")
+	}
+	if !p.IsAllowed("8-8-8-8") {
+		t.Error("all policy should allow public IP")
+	}
+	if p.IsAllowed("myapp-192-168-1-100") {
+		t.Error("all policy should still reject prefixed label")
+	}
+	if p.Description() != "any IP" {
+		t.Errorf("description = %q, want 'any IP'", p.Description())
+	}
+}
+
+func TestCertSubsPolicy_ExactLabels(t *testing.T) {
+	p := NewCertSubsPolicy([]string{"127-0-0-1", "10-0-0-1"})
+	if !p.IsAllowed("127-0-0-1") {
+		t.Error("should allow exact label 127-0-0-1")
+	}
+	if !p.IsAllowed("10-0-0-1") {
+		t.Error("should allow exact label 10-0-0-1")
+	}
+	if p.IsAllowed("192-168-1-1") {
+		t.Error("should reject unlisted label")
+	}
+}
+
+func TestCertSubsPolicy_CIDR(t *testing.T) {
+	p := NewCertSubsPolicy([]string{"10.0.0.0/8", "192.168.0.0/16"})
+	if !p.IsAllowed("10-0-0-1") {
+		t.Error("should allow IP in 10.0.0.0/8")
+	}
+	if !p.IsAllowed("10-255-255-255") {
+		t.Error("should allow IP at end of 10.0.0.0/8")
+	}
+	if !p.IsAllowed("192-168-1-50") {
+		t.Error("should allow IP in 192.168.0.0/16")
+	}
+	if p.IsAllowed("172-16-0-1") {
+		t.Error("should reject IP not in configured CIDRs")
+	}
+	if p.IsAllowed("8-8-8-8") {
+		t.Error("should reject public IP")
+	}
+	if p.IsAllowed("myapp-10-0-0-1") {
+		t.Error("CIDR should reject prefixed label")
+	}
+}
+
+func TestCertSubsPolicy_Mixed(t *testing.T) {
+	p := NewCertSubsPolicy([]string{"127-0-0-1", "10.0.0.0/8"})
+	if !p.IsAllowed("127-0-0-1") {
+		t.Error("should allow exact label")
+	}
+	if !p.IsAllowed("10-1-2-3") {
+		t.Error("should allow CIDR match")
+	}
+	if p.IsAllowed("192-168-1-1") {
+		t.Error("should reject non-matching")
+	}
+}
+
+func TestCertSubsPolicy_IsEnabled(t *testing.T) {
+	if NewCertSubsPolicy(nil).IsEnabled() {
+		t.Error("empty policy should be disabled")
+	}
+	if !NewCertSubsPolicy([]string{"127-0-0-1"}).IsEnabled() {
+		t.Error("label policy should be enabled")
+	}
+	if !NewCertSubsPolicy([]string{"10.0.0.0/8"}).IsEnabled() {
+		t.Error("CIDR policy should be enabled")
+	}
+	if !NewCertSubsPolicy([]string{"private"}).IsEnabled() {
+		t.Error("private policy should be enabled")
+	}
+}
+
 func BenchmarkExtractIPv4Simple(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		extractIP("127-0-0-1")

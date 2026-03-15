@@ -280,7 +280,7 @@ func (m *CertManager) RequestSubdomainEcdsaCert(label string) error {
 		return fmt.Errorf("invalid IP label: %s", label)
 	}
 
-	if !cfg.CertSubs[label] {
+	if !cfg.CertSubs.IsAllowed(label) {
 		return fmt.Errorf("label not allowed: %s", label)
 	}
 
@@ -301,7 +301,7 @@ func (m *CertManager) RequestSubdomainRsaCert(label string) error {
 		return fmt.Errorf("invalid IP label: %s", label)
 	}
 
-	if !cfg.CertSubs[label] {
+	if !cfg.CertSubs.IsAllowed(label) {
 		return fmt.Errorf("label not allowed: %s", label)
 	}
 
