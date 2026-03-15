@@ -19,7 +19,7 @@ func setupHTTPSTest() *DNSHandler {
 		NS:       []string{"ns1.test.dev."},
 		DomainIP: net.ParseIP("1.2.3.4"),
 		CNAME:    map[string]string{"www": "example.github.io."},
-		CertSubs: map[string]bool{},
+		CertSubs: NewCertSubsPolicy(nil),
 	}
 	return NewDNSHandler(NewChallengeStore())
 }
@@ -79,7 +79,7 @@ func TestHandleRoot_InfoPage(t *testing.T) {
 func TestHandleRoot_WithACME(t *testing.T) {
 	setupHTTPSTest()
 	cfg.ACMEEmail = "test@example.com"
-	cfg.CertSubs = map[string]bool{"127-0-0-1": true}
+	cfg.CertSubs = NewCertSubsPolicy([]string{"127-0-0-1"})
 	cfg.CertRSACompat = false
 
 	req := httptest.NewRequest("GET", "/", nil)
@@ -109,7 +109,7 @@ func TestHandleRoot_WithACME(t *testing.T) {
 func TestHandleRoot_WithACMEAndRSA(t *testing.T) {
 	setupHTTPSTest()
 	cfg.ACMEEmail = "test@example.com"
-	cfg.CertSubs = map[string]bool{"127-0-0-1": true}
+	cfg.CertSubs = NewCertSubsPolicy([]string{"127-0-0-1"})
 	cfg.CertRSACompat = true
 
 	req := httptest.NewRequest("GET", "/", nil)
@@ -132,7 +132,7 @@ func TestHandleRoot_WithACMEAndRSA(t *testing.T) {
 func TestHandleRoot_ACMEWithoutCertSubs(t *testing.T) {
 	setupHTTPSTest()
 	cfg.ACMEEmail = "test@example.com"
-	cfg.CertSubs = map[string]bool{}
+	cfg.CertSubs = NewCertSubsPolicy(nil) // empty = disabled
 
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Host = "127-0-0-1.test.dev"
@@ -145,6 +145,25 @@ func TestHandleRoot_ACMEWithoutCertSubs(t *testing.T) {
 	}
 	if strings.Contains(body, "Subdomain Certificate") {
 		t.Error("body should not contain Subdomain Certificates when cert-subs is empty")
+	}
+}
+
+func TestHandleRoot_CertSubsPrivate(t *testing.T) {
+	setupHTTPSTest()
+	cfg.ACMEEmail = "test@example.com"
+	cfg.CertSubs = NewCertSubsPolicy([]string{"private"})
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "127-0-0-1.test.dev"
+	w := httptest.NewRecorder()
+	handleRoot(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Subdomain Certificate") {
+		t.Error("body should contain Subdomain Certificates with 'private' policy")
+	}
+	if !strings.Contains(body, "any private/reserved IP") {
+		t.Error("body should mention 'any private/reserved IP' with 'private' policy")
 	}
 }
 
@@ -492,7 +511,7 @@ func TestSubCertHandler_InvalidIPLabel(t *testing.T) {
 func TestSubCertHandler_RsaEndpoints_DisabledWhenCertRSAFalse(t *testing.T) {
 	setupHTTPSTest()
 	cfg.CertRSACompat = false
-	cfg.CertSubs = map[string]bool{"127-0-0-1": true}
+	cfg.CertSubs = NewCertSubsPolicy([]string{"127-0-0-1"})
 	cs := NewChallengeStore()
 	certMgr := NewCertManager(cs)
 	h := subCertHandler(certMgr)
@@ -512,10 +531,158 @@ func TestSubCertHandler_RsaEndpoints_DisabledWhenCertRSAFalse(t *testing.T) {
 	}
 }
 
+func TestSubCertHandler_EmptyPolicy_Rejected(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertSubs = NewCertSubsPolicy(nil) // empty = disabled
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	req := httptest.NewRequest("POST", "/cert/sub/192-168-1-100", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("should be rejected when cert-subs is empty (disabled), got %d", w.Code)
+	}
+}
+
+func TestSubCertHandler_PrivatePolicy_PrivateIPAllowed(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertSubs = NewCertSubsPolicy([]string{"private"})
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	req := httptest.NewRequest("POST", "/cert/sub/192-168-1-100", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	// Should NOT get 403 (will get 500 because no real ACME, but that means policy passed)
+	if w.Code == http.StatusForbidden {
+		t.Errorf("private IP should be allowed with 'private' policy, got 403")
+	}
+}
+
+func TestSubCertHandler_PrivatePolicy_PublicIPRejected(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertSubs = NewCertSubsPolicy([]string{"private"})
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	req := httptest.NewRequest("POST", "/cert/sub/8-8-8-8", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("public IP should be rejected with 'private' policy, got %d", w.Code)
+	}
+}
+
+func TestSubCertHandler_PrivatePolicy_PrefixedLabelRejected(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertSubs = NewCertSubsPolicy([]string{"private"})
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	// "myapp-192-168-1-100" has a prefix — should be rejected to prevent quota abuse
+	req := httptest.NewRequest("POST", "/cert/sub/myapp-192-168-1-100", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("prefixed IP label should be rejected with 'private' policy, got %d", w.Code)
+	}
+}
+
+func TestSubCertHandler_CIDRPolicy_MatchingIPAllowed(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertSubs = NewCertSubsPolicy([]string{"10.0.0.0/8"})
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	req := httptest.NewRequest("POST", "/cert/sub/10-0-0-1", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	// Should NOT get 403 (will get 500 because no real ACME, but that means policy passed)
+	if w.Code == http.StatusForbidden {
+		t.Errorf("IP in CIDR range should be allowed, got 403")
+	}
+}
+
+func TestSubCertHandler_CIDRPolicy_NonMatchingIPRejected(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertSubs = NewCertSubsPolicy([]string{"10.0.0.0/8"})
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	req := httptest.NewRequest("POST", "/cert/sub/192-168-1-1", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("IP outside CIDR range should be rejected, got %d", w.Code)
+	}
+}
+
+func TestSubCertHandler_ExplicitLabelStillWorks(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertSubs = NewCertSubsPolicy([]string{"10-0-0-1"})
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	req := httptest.NewRequest("POST", "/cert/sub/10-0-0-1", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	// Should pass whitelist (get 500 from ACME, not 403)
+	if w.Code == http.StatusForbidden {
+		t.Errorf("explicitly whitelisted label should be allowed, got 403")
+	}
+}
+
+func TestSubCertHandler_MixedPolicy(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertSubs = NewCertSubsPolicy([]string{"127-0-0-1", "10.0.0.0/8"})
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	// Exact label should work
+	req := httptest.NewRequest("POST", "/cert/sub/127-0-0-1", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+	if w.Code == http.StatusForbidden {
+		t.Errorf("exact label should be allowed in mixed policy, got 403")
+	}
+
+	// CIDR match should work
+	req = httptest.NewRequest("POST", "/cert/sub/10-1-2-3", nil)
+	w = httptest.NewRecorder()
+	h(w, req)
+	if w.Code == http.StatusForbidden {
+		t.Errorf("CIDR-matching IP should be allowed in mixed policy, got 403")
+	}
+
+	// Non-matching should be rejected
+	req = httptest.NewRequest("POST", "/cert/sub/192-168-1-1", nil)
+	w = httptest.NewRecorder()
+	h(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("non-matching IP should be rejected in mixed policy, got %d", w.Code)
+	}
+}
+
 func TestSubCertHandler_RsaEndpoints_NotFoundWhenCertRSATrue(t *testing.T) {
 	setupHTTPSTest()
 	cfg.CertRSACompat = true
-	cfg.CertSubs = map[string]bool{"127-0-0-1": true}
+	cfg.CertSubs = NewCertSubsPolicy([]string{"127-0-0-1"})
 	cs := NewChallengeStore()
 	certMgr := NewCertManager(cs)
 	h := subCertHandler(certMgr)

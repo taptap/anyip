@@ -14,7 +14,7 @@ func setupDNSTest() (*DNSHandler, *ChallengeStore) {
 		NS:       []string{"ns1.test.dev.", "ns2.test.dev."},
 		DomainIP: net.ParseIP("1.2.3.4"),
 		CNAME:    map[string]string{"www": "example.github.io."},
-		CertSubs: map[string]bool{},
+		CertSubs: NewCertSubsPolicy(nil),
 	}
 	ch := NewChallengeStore()
 	return NewDNSHandler(ch), ch

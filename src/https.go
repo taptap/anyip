@@ -247,8 +247,8 @@ func subCertHandler(certMgr *CertManager) http.HandlerFunc {
 
 		switch {
 		case r.Method == http.MethodPost && action == "":
-			// Check whitelist before issuance
-			if !cfg.CertSubs[label] {
+			// Check policy before issuance
+			if !cfg.CertSubs.IsAllowed(label) {
 				http.Error(w, `{"error":"label not in allowed list"}`, http.StatusForbidden)
 				return
 			}
@@ -466,18 +466,12 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "\n")
 	}
 
-	// Subdomain Certificates (only when ACME + cert-subs configured)
-	if acmeEnabled && len(cfg.CertSubs) > 0 {
-		labels := make([]string, 0, len(cfg.CertSubs))
-		for l := range cfg.CertSubs {
-			labels = append(labels, l)
-		}
-		sort.Strings(labels)
-		example := labels[0]
-
+	// Subdomain Certificates (only when ACME + cert-subs policy is enabled)
+	if acmeEnabled && cfg.CertSubs.IsEnabled() {
 		fmt.Fprintf(w, "%s\n\n", sectionHeader(fmt.Sprintf("Subdomain Certificates (*.{ip}.%s)", domain)))
 		fmt.Fprintf(w, "  On-demand wildcard certs for per-IP subdomains.\n")
-		fmt.Fprintf(w, "  Allowed labels: %s\n\n", strings.Join(labels, ", "))
+		fmt.Fprintf(w, "  Allowed labels: %s\n\n", cfg.CertSubs.Description())
+
 		fmt.Fprintf(w, "  Endpoints (replace {label} with an allowed IP label):\n")
 		fmt.Fprintf(w, "    POST /cert/sub/{label}                    Issue new certificate (JSON)\n")
 		fmt.Fprintf(w, "    GET  /cert/sub/{label}/fullchain.pem      ECDSA PEM certificate chain\n")
@@ -490,8 +484,8 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, "\n")
 		fmt.Fprintf(w, "  Example:\n")
-		fmt.Fprintf(w, "    $ curl -X POST https://%s/cert/sub/%s\n", domain, example)
-		fmt.Fprintf(w, "    $ curl https://%s/cert/sub/%s/fullchain.pem -o fullchain.pem\n", domain, example)
+		fmt.Fprintf(w, "    $ curl -X POST https://%s/cert/sub/127-0-0-1\n", domain)
+		fmt.Fprintf(w, "    $ curl https://%s/cert/sub/127-0-0-1/fullchain.pem -o fullchain.pem\n", domain)
 		fmt.Fprintf(w, "\n")
 	}
 

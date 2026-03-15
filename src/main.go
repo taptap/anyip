@@ -30,7 +30,7 @@ type Config struct {
 	OnlyPrivate   bool
 	CertRSACompat bool              // also issue RSA certificates (for Node.js/webpack compatibility)
 	Verbose       bool
-	CertSubs      map[string]bool   // allowed IP labels for subdomain certs
+	CertSubs      CertSubsPolicy    // policy for allowed subdomain cert labels
 	CNAME         map[string]string // static CNAME records: label → target
 }
 
@@ -52,22 +52,23 @@ func main() {
 	flag.UintVar(&ttlVal, "ttl", envOrUint("ANYIP_TTL", 259200), "DNS response TTL in seconds (72h)")
 	flag.BoolVar(&cfg.OnlyPrivate, "only-private", envOr("ANYIP_ONLY_PRIVATE", "false") == "true", "Only resolve private IPs")
 	flag.BoolVar(&cfg.CertRSACompat, "cert-rsa-compat", envOr("ANYIP_CERT_RSA_COMPAT", "false") == "true", "Also issue RSA certificates alongside ECDSA (for Node.js/webpack compatibility)")
-	flag.StringVar(&certSubsStr, "cert-subs", envOr("ANYIP_CERT_SUBS", ""), "Allowed IP labels for subdomain certs (comma-separated, e.g. 127-0-0-1)")
+	flag.StringVar(&certSubsStr, "cert-subs", envOr("ANYIP_CERT_SUBS", ""), "Allowed IP labels/CIDRs for subdomain certs (comma-separated; supports exact labels, CIDRs, 'private', or 'all')")
 	flag.StringVar(&cnameStr, "cname", envOr("ANYIP_CNAME", ""), "Static CNAME records (comma-separated label=target, e.g. www=taptap.github.io)")
 	flag.BoolVar(&cfg.Verbose, "verbose", envOr("ANYIP_VERBOSE", "false") == "true", "Verbose logging")
 	flag.Parse()
 	cfg.TTL = uint32(ttlVal)
 
-	// Parse allowed subdomain cert labels
-	cfg.CertSubs = make(map[string]bool)
+	// Parse allowed subdomain cert policy
+	var certSubsEntries []string
 	if certSubsStr != "" {
-		for _, label := range strings.Split(certSubsStr, ",") {
-			label = strings.TrimSpace(label)
-			if label != "" {
-				cfg.CertSubs[label] = true
+		for _, entry := range strings.Split(certSubsStr, ",") {
+			entry = strings.TrimSpace(entry)
+			if entry != "" {
+				certSubsEntries = append(certSubsEntries, entry)
 			}
 		}
 	}
+	cfg.CertSubs = NewCertSubsPolicy(certSubsEntries)
 
 	// Parse static CNAME records
 	cfg.CNAME = make(map[string]string)
@@ -156,12 +157,8 @@ func main() {
 	if cfg.ACMEEmail != "" {
 		log.Printf("[anyip] ACME enabled (email: %s, staging: %v)", cfg.ACMEEmail, cfg.ACMEStaging)
 	}
-	if len(cfg.CertSubs) > 0 {
-		labels := make([]string, 0, len(cfg.CertSubs))
-		for l := range cfg.CertSubs {
-			labels = append(labels, l)
-		}
-		log.Printf("[anyip] subdomain certs allowed for: %s", strings.Join(labels, ", "))
+	if cfg.CertSubs.IsEnabled() {
+		log.Printf("[anyip] subdomain certs allowed for: %s", cfg.CertSubs.Description())
 	}
 	if len(cfg.CNAME) > 0 {
 		entries := make([]string, 0, len(cfg.CNAME))

@@ -260,7 +260,7 @@ On first run, AnyIP will:
 | `-ttl` | `ANYIP_TTL` | `259200` | DNS response TTL in seconds (72h) |
 | `-only-private` | `ANYIP_ONLY_PRIVATE` | `false` | Only resolve private/reserved IPs |
 | `-cert-rsa-compat` | `ANYIP_CERT_RSA_COMPAT` | `false` | Also issue RSA certificates alongside ECDSA (for Node.js/webpack compatibility) |
-| `-cert-subs` | `ANYIP_CERT_SUBS` | | Allowed IP labels for subdomain certs (comma-separated) |
+| `-cert-subs` | `ANYIP_CERT_SUBS` | | Allowed IP labels/CIDRs for subdomain certs (comma-separated; e.g. `127-0-0-1`, `10.0.0.0/8`, `private`, or `all`) |
 | `-cname` | `ANYIP_CNAME` | | Static CNAME records (`label=target,...`, e.g. `www=taptap.github.io`) |
 | `-verbose` | `ANYIP_VERBOSE` | `false` | Verbose logging |
 
@@ -293,7 +293,7 @@ On-demand wildcard certificates for nested subdomains (e.g., `*.127-0-0-1.anyip.
 | `GET /cert/sub/{label}/privkey-rsa.pem` | RSA private key *(requires `-cert-rsa-compat`)* |
 | `GET /cert/sub/{label}/info-rsa` | RSA certificate metadata (JSON) *(requires `-cert-rsa-compat`)* |
 
-The `{label}` must be a valid IP pattern (e.g., `127-0-0-1`) **and** listed in `ANYIP_CERT_SUBS`. Requests for unlisted labels return 403.
+The `{label}` must be a valid IP pattern (e.g., `127-0-0-1`) **and** allowed by the `ANYIP_CERT_SUBS` policy (exact label, CIDR, `private`, or `all`). Requests for disallowed labels return 403.
 
 **Example: request and use a subdomain cert**
 
@@ -314,7 +314,7 @@ curl -o key.pem  https://anyip.dev/cert/sub/127-0-0-1/privkey-rsa.pem
 node server.js --cert cert.pem --key key.pem --host user1.127-0-0-1.anyip.dev
 ```
 
-> **Rate limit:** Let's Encrypt allows 50 certificates per registered domain per week. Use `ANYIP_CERT_SUBS` to whitelist only the IP labels you actually need.
+> **Rate limit:** Let's Encrypt allows 50 certificates per registered domain per week. Use `ANYIP_CERT_SUBS` to control which IPs can request certs: exact labels (`127-0-0-1`), CIDRs (`10.0.0.0/8`), `private` for all private/reserved IPs, or `all` for any IP.
 
 ### DNS over HTTPS (DoH)
 
