@@ -512,6 +512,96 @@ func TestSubCertHandler_RsaEndpoints_DisabledWhenCertRSAFalse(t *testing.T) {
 	}
 }
 
+func TestSubCertHandler_AllowPrivate_PrivateIPAllowed(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertSubsAllowPrivate = true
+	cfg.CertSubs = map[string]bool{} // empty whitelist
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	req := httptest.NewRequest("POST", "/cert/sub/192-168-1-100", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	// Should NOT get 403 (will get 500 because no real ACME, but that means whitelist passed)
+	if w.Code == http.StatusForbidden {
+		t.Errorf("private IP should be allowed when CertSubsAllowPrivate is true, got 403")
+	}
+}
+
+func TestSubCertHandler_AllowPrivate_PublicIPRejected(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertSubsAllowPrivate = true
+	cfg.CertSubs = map[string]bool{}
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	req := httptest.NewRequest("POST", "/cert/sub/8-8-8-8", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("public IP should be rejected even when CertSubsAllowPrivate is true, got %d", w.Code)
+	}
+}
+
+func TestSubCertHandler_AllowPrivate_DefaultDisabled(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertSubsAllowPrivate = false
+	cfg.CertSubs = map[string]bool{}
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	req := httptest.NewRequest("POST", "/cert/sub/192-168-1-100", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("should be rejected when CertSubsAllowPrivate is false, got %d", w.Code)
+	}
+}
+
+func TestSubCertHandler_AllowPrivate_ExplicitWhitelistStillWorks(t *testing.T) {
+	setupHTTPSTest()
+	cfg.CertSubsAllowPrivate = false
+	cfg.CertSubs = map[string]bool{"10-0-0-1": true}
+	cs := NewChallengeStore()
+	certMgr := NewCertManager(cs)
+	h := subCertHandler(certMgr)
+
+	req := httptest.NewRequest("POST", "/cert/sub/10-0-0-1", nil)
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	// Should pass whitelist (get 500 from ACME, not 403)
+	if w.Code == http.StatusForbidden {
+		t.Errorf("explicitly whitelisted label should be allowed, got 403")
+	}
+}
+
+func TestHandleRoot_CertSubsAllowPrivate(t *testing.T) {
+	setupHTTPSTest()
+	cfg.ACMEEmail = "test@example.com"
+	cfg.CertSubsAllowPrivate = true
+	cfg.CertSubs = map[string]bool{}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "127-0-0-1.test.dev"
+	w := httptest.NewRecorder()
+	handleRoot(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Subdomain Certificate") {
+		t.Error("body should contain Subdomain Certificates when CertSubsAllowPrivate is true")
+	}
+	if !strings.Contains(body, "any private IP") {
+		t.Error("body should mention 'any private IP' when CertSubsAllowPrivate is true")
+	}
+}
+
 func TestSubCertHandler_RsaEndpoints_NotFoundWhenCertRSATrue(t *testing.T) {
 	setupHTTPSTest()
 	cfg.CertRSACompat = true

@@ -249,8 +249,15 @@ func subCertHandler(certMgr *CertManager) http.HandlerFunc {
 		case r.Method == http.MethodPost && action == "":
 			// Check whitelist before issuance
 			if !cfg.CertSubs[label] {
-				http.Error(w, `{"error":"label not in allowed list"}`, http.StatusForbidden)
-				return
+				if !cfg.CertSubsAllowPrivate {
+					http.Error(w, `{"error":"label not in allowed list"}`, http.StatusForbidden)
+					return
+				}
+				ip := extractIP(label)
+				if ip == nil || !isPrivateIP(ip) {
+					http.Error(w, `{"error":"label not in allowed list"}`, http.StatusForbidden)
+					return
+				}
 			}
 			// Request ECDSA cert issuance (and RSA if enabled)
 			if err := certMgr.RequestSubdomainEcdsaCert(label); err != nil {
@@ -466,18 +473,36 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "\n")
 	}
 
-	// Subdomain Certificates (only when ACME + cert-subs configured)
-	if acmeEnabled && len(cfg.CertSubs) > 0 {
-		labels := make([]string, 0, len(cfg.CertSubs))
-		for l := range cfg.CertSubs {
-			labels = append(labels, l)
-		}
-		sort.Strings(labels)
-		example := labels[0]
-
+	// Subdomain Certificates (only when ACME + cert-subs or allow-private configured)
+	if acmeEnabled && (len(cfg.CertSubs) > 0 || cfg.CertSubsAllowPrivate) {
 		fmt.Fprintf(w, "%s\n\n", sectionHeader(fmt.Sprintf("Subdomain Certificates (*.{ip}.%s)", domain)))
 		fmt.Fprintf(w, "  On-demand wildcard certs for per-IP subdomains.\n")
-		fmt.Fprintf(w, "  Allowed labels: %s\n\n", strings.Join(labels, ", "))
+		if cfg.CertSubsAllowPrivate {
+			fmt.Fprintf(w, "  Allowed labels: any private IP\n")
+		}
+		if len(cfg.CertSubs) > 0 {
+			labels := make([]string, 0, len(cfg.CertSubs))
+			for l := range cfg.CertSubs {
+				labels = append(labels, l)
+			}
+			sort.Strings(labels)
+			if cfg.CertSubsAllowPrivate {
+				fmt.Fprintf(w, "  Additional whitelist: %s\n", strings.Join(labels, ", "))
+			} else {
+				fmt.Fprintf(w, "  Allowed labels: %s\n", strings.Join(labels, ", "))
+			}
+		}
+		fmt.Fprintf(w, "\n")
+
+		example := "127-0-0-1"
+		if len(cfg.CertSubs) > 0 {
+			labels := make([]string, 0, len(cfg.CertSubs))
+			for l := range cfg.CertSubs {
+				labels = append(labels, l)
+			}
+			sort.Strings(labels)
+			example = labels[0]
+		}
 		fmt.Fprintf(w, "  Endpoints (replace {label} with an allowed IP label):\n")
 		fmt.Fprintf(w, "    POST /cert/sub/{label}                    Issue new certificate (JSON)\n")
 		fmt.Fprintf(w, "    GET  /cert/sub/{label}/fullchain.pem      ECDSA PEM certificate chain\n")
