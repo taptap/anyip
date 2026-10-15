@@ -52,7 +52,37 @@ Three components work together:
 
 ## Usage
 
-Using the public `anyip.dev` service — no setup required.
+### Public Services
+
+Both services are publicly available to everyone. Neither requires a TapTap account,
+VPN, or access to a company network.
+
+| Service | DNS policy for IP-encoded hostnames |
+|---------|-------------------------------------|
+| [anyip.dev](https://anyip.dev) | Resolves public and private IP addresses |
+| [lanip.dev](https://lanip.dev) | Resolves only permitted private, loopback, and reserved IP addresses; public IPs return no address |
+
+**lanip.dev is a public service, not a company-internal service.** Its name describes
+the addresses it resolves, not who may use it. It does not provide a VPN, proxy, or
+access to someone else's network: the browser connects directly to the returned IP.
+The bare domain and `www` remain public service endpoints, outside the IP-label filter.
+See [Restricting to Private IPs](#restricting-to-private-ips) for the permitted ranges.
+
+Both services support IPv4, IPv6, prefixed and nested IP hostnames, ECDSA/RSA
+development certificates, on-demand subdomain certificates, and DNS over HTTPS.
+The examples below use `anyip.dev`; substitute `lanip.dev` for permitted addresses:
+
+```bash
+dig myapp-192-168-1-5.lanip.dev +short   # 192.168.1.5
+dig preview.127-0-0-1.lanip.dev +short  # 127.0.0.1
+dig 8-8-8-8.lanip.dev +short            # no address
+```
+
+When migrating from `tap.dev`, replace the hostname suffix and obtain certificates
+for the new domain; old-domain certificates cannot be reused. Both services support
+on-demand subdomain issuance, but a specific certificate must be requested before
+use. DNS support for a nested name does not imply that `*.lanip.dev` covers it;
+see [Wildcard Certificate Coverage](#wildcard-certificate-coverage).
 
 ### DNS Resolution
 
@@ -399,7 +429,8 @@ AnyIP solves the browser secure context problem — not transport security. The 
 
 ### Restricting to Private IPs
 
-To prevent abuse (e.g., phishing with public IP certs), use `-only-private`:
+To restrict DNS answers for IP-encoded hostnames, use `-only-private`, as on the
+public `lanip.dev` service:
 
 ```bash
 anyip -domain anyip.dev -only-private
@@ -413,6 +444,17 @@ This restricts resolution to private/reserved addresses only:
 - `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24` (RFC 5737 documentation)
 - `198.18.0.0/15` (RFC 2544 benchmarking)
 - `fc00::/7` (IPv6 ULA), `fe80::/10` (link-local), `::1` (loopback), `2001:db8::/32` (RFC 3849 documentation)
+
+This is DNS address filtering, not access control or proof that an application is
+trusted. Private addresses need not belong to a company network, and loopback
+addresses refer to the visitor's own device. Certificate issuance is configured
+separately with `ANYIP_CERT_SUBS`; `-only-private` does not restrict that policy.
+
+For OAuth development callbacks, have the authorization server approve each
+client's complete redirect URI rather than trusting every `*.lanip.dev` hostname.
+Use authorization code flow with PKCE and appropriate request/session binding.
+The shared development certificate keys are public and do not establish application
+ownership. See [OAuth 2.0 Security Best Current Practice, Section 2.1](https://www.rfc-editor.org/rfc/rfc9700.html#section-2.1).
 
 ## Tech Stack
 

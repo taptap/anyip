@@ -82,7 +82,24 @@ $ curl https://myapp-127-0-0-1.anyip.dev  # ✅ valid TLS</code></pre>
       <!-- Usage -->
       <section>
         <h2>Usage</h2>
-        <p>Use the public <code>anyip.dev</code> service — no setup required.</p>
+        <h3>Public Services</h3>
+        <p>Both services are publicly available to everyone. Neither requires a TapTap account, VPN, or access to a company network.</p>
+        <div class="overflow-auto">
+          <table>
+            <thead><tr><th scope="col">Service</th><th scope="col">DNS policy for IP-encoded hostnames</th></tr></thead>
+            <tbody>
+              <tr><th scope="row"><a href="https://anyip.dev">anyip.dev</a></th><td>Public and private IP addresses</td></tr>
+              <tr><th scope="row"><a href="https://lanip.dev">lanip.dev</a></th><td>Permitted private, loopback, and reserved addresses only; public IPs return no address</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p><strong>lanip.dev is a public service, not a company-internal service.</strong> It filters DNS answers; it does not provide a VPN or proxy. Your browser connects directly to the returned IP. The bare domain and <code>www</code> remain public service endpoints.</p>
+        <p>Both services support IPv4, IPv6, prefixed and nested IP hostnames, ECDSA/RSA development certificates, on-demand subdomain certificates, and DNS over HTTPS. The examples below use <code>anyip.dev</code>; substitute <code>lanip.dev</code> for permitted addresses.</p>
+        <pre><code>dig myapp-192-168-1-5.lanip.dev +short   # 192.168.1.5
+dig preview.127-0-0-1.lanip.dev +short  # 127.0.0.1
+dig 8-8-8-8.lanip.dev +short            # no address</code></pre>
+        <p>Migrating from <code>tap.dev</code>? Replace the hostname suffix and obtain certificates for the new domain. Both services support on-demand subdomain issuance; request the specific certificate before use. DNS resolution of nested names does not imply coverage by the root wildcard certificate. See <a href="https://github.com/taptap/anyip#wildcard-certificate-coverage">certificate coverage</a>.</p>
+        <p><strong>Development security:</strong> private-address filtering does not prove application ownership or make all subdomains trusted OAuth callbacks. Shared certificate private keys are intentionally public. See the <a href="https://github.com/taptap/anyip#security">security and OAuth guidance</a>.</p>
 
         <h3>DNS Resolution</h3>
         <p>Embed any IP address in the hostname. It just works:</p>
