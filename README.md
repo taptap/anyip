@@ -54,22 +54,33 @@ Three components work together:
 
 ### Public Services
 
-Both services are publicly available to everyone.
+**[anyip.dev](https://anyip.dev) is the primary public service**, supporting both
+public and private IP addresses. The general usage examples in this README use
+`anyip.dev`.
 
 | Service | DNS policy for IP-encoded hostnames |
 |---------|-------------------------------------|
 | [anyip.dev](https://anyip.dev) | Resolves public and private IP addresses |
 | [lanip.dev](https://lanip.dev) | Resolves only permitted private, loopback, and reserved IP addresses; public IPs return no address |
 
-**lanip.dev is a public DNS service for private and reserved addresses.**
-It does not provide a VPN, proxy, or
-access to someone else's network: the browser connects directly to the returned IP.
-The bare domain and `www` remain public service endpoints, outside the IP-label filter.
-See [Restricting to Private IPs](#restricting-to-private-ips) for the permitted ranges.
-
 Both services support IPv4, IPv6, prefixed and nested IP hostnames, ECDSA/RSA
 development certificates, on-demand subdomain certificates, and DNS over HTTPS.
-The examples below use `anyip.dev`; substitute `lanip.dev` for permitted addresses:
+
+#### When to use lanip.dev
+
+Use **[lanip.dev](https://lanip.dev)** when your workflow requires IP-encoded
+hostnames that will not resolve to public IP addresses, such as development
+callback policies that exclude public-IP destinations. It is publicly available
+to everyone and resolves only permitted private, loopback, and reserved addresses.
+See [Restricting to Private IPs](#restricting-to-private-ips) for the permitted ranges
+and OAuth guidance.
+
+This restriction applies to IP-encoded hostnames; the bare domain and `www` remain
+public service endpoints. The browser connects directly to the returned IP.
+Address filtering alone does not establish application ownership or make every
+subdomain a trusted OAuth callback.
+
+For these use cases, substitute `lanip.dev` in the examples:
 
 ```bash
 dig myapp-192-168-1-5.lanip.dev +short   # 192.168.1.5
