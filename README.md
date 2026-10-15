@@ -54,16 +54,15 @@ Three components work together:
 
 ### Public Services
 
-Both services are publicly available to everyone. Neither requires a TapTap account,
-VPN, or access to a company network.
+Both services are publicly available to everyone.
 
 | Service | DNS policy for IP-encoded hostnames |
 |---------|-------------------------------------|
 | [anyip.dev](https://anyip.dev) | Resolves public and private IP addresses |
 | [lanip.dev](https://lanip.dev) | Resolves only permitted private, loopback, and reserved IP addresses; public IPs return no address |
 
-**lanip.dev is a public service, not a company-internal service.** Its name describes
-the addresses it resolves, not who may use it. It does not provide a VPN, proxy, or
+**lanip.dev is a public DNS service for private and reserved addresses.**
+It does not provide a VPN, proxy, or
 access to someone else's network: the browser connects directly to the returned IP.
 The bare domain and `www` remain public service endpoints, outside the IP-label filter.
 See [Restricting to Private IPs](#restricting-to-private-ips) for the permitted ranges.
@@ -446,7 +445,7 @@ This restricts resolution to private/reserved addresses only:
 - `fc00::/7` (IPv6 ULA), `fe80::/10` (link-local), `::1` (loopback), `2001:db8::/32` (RFC 3849 documentation)
 
 This is DNS address filtering, not access control or proof that an application is
-trusted. Private addresses need not belong to a company network, and loopback
+trusted. Private addresses do not establish application ownership, and loopback
 addresses refer to the visitor's own device. Certificate issuance is configured
 separately with `ANYIP_CERT_SUBS`; `-only-private` does not restrict that policy.
 
