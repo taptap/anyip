@@ -83,7 +83,7 @@ $ curl https://myapp-127-0-0-1.anyip.dev  # ✅ valid TLS</code></pre>
       <section>
         <h2>Usage</h2>
         <h3>Public Services</h3>
-        <p>Both services are publicly available to everyone. Neither requires a TapTap account, VPN, or access to a company network.</p>
+        <p>Both services are publicly available to everyone.</p>
         <div class="overflow-auto">
           <table>
             <thead><tr><th scope="col">Service</th><th scope="col">DNS policy for IP-encoded hostnames</th></tr></thead>
@@ -93,7 +93,7 @@ $ curl https://myapp-127-0-0-1.anyip.dev  # ✅ valid TLS</code></pre>
             </tbody>
           </table>
         </div>
-        <p><strong>lanip.dev is a public service, not a company-internal service.</strong> It filters DNS answers; it does not provide a VPN or proxy. Your browser connects directly to the returned IP. The bare domain and <code>www</code> remain public service endpoints.</p>
+        <p><strong>lanip.dev is a public DNS service for private and reserved addresses.</strong> It filters DNS answers; it does not provide a VPN or proxy. Your browser connects directly to the returned IP. The bare domain and <code>www</code> remain public service endpoints.</p>
         <p>Both services support IPv4, IPv6, prefixed and nested IP hostnames, ECDSA/RSA development certificates, on-demand subdomain certificates, and DNS over HTTPS. The examples below use <code>anyip.dev</code>; substitute <code>lanip.dev</code> for permitted addresses.</p>
         <pre><code>dig myapp-192-168-1-5.lanip.dev +short   # 192.168.1.5
 dig preview.127-0-0-1.lanip.dev +short  # 127.0.0.1
